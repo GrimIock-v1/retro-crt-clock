@@ -58,3 +58,8 @@ All background luminance values are deliberately below foreground text luminance
 ## V3.8.3 moon size tweak
 
 - Increased the moon size by about 10 percent for better visibility near thin phases.
+
+
+## Video timing isolation strategy (V3.9.2)
+
+Because a static displayed framebuffer was observed to remain vertically stable while normal updates jittered, diagnosis now separates three operations: scanout only, backbuffer rendering only, and framebuffer swaps only. The render-only and swap-only tests use a frozen `SceneData` snapshot to avoid time/animation differences and pause unrelated periodic network/diagnostic work. This keeps the experiment useful on real analog hardware and avoids prematurely changing ISR priority or the composite generator itself.

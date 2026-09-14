@@ -28,12 +28,14 @@ static constexpr uint32_t FETCH_FRESH_INTERVAL_MS = 5UL * 60UL * 1000UL;
 static constexpr uint32_t FETCH_STALE_INTERVAL_MS = 60UL * 1000UL;
 static constexpr uint32_t BRIDGE_READ_TIMEOUT_MS = 5000;
 static constexpr uint32_t BRIDGE_RETRY_DELAY_MS = 250;
-static constexpr uint32_t VIDEO_FREEZE_TEST_MS = 30000;
+static constexpr uint32_t VIDEO_ISOLATION_TEST_MS = 30000;
+static constexpr uint32_t VIDEO_ISOLATION_STEP_MS = 500;
+static constexpr uint32_t RENDER_DIAG_CACHE_INTERVAL_MS = 5000;
 static constexpr uint32_t HEALTH_LOG_INTERVAL_MS = 5UL * 60UL * 1000UL;
 
 static constexpr int BRIDGE_API_VERSION = 3;
 static constexpr int SETTINGS_VERSION = 1;
-static constexpr const char* FIRMWARE_VERSION = "3.9.1";
+static constexpr const char* FIRMWARE_VERSION = "3.9.2";
 static constexpr const char* DEFAULT_BRIDGE_URL =
     "http://crt-clock-bridge.ultramagnus.ca/status";
 
@@ -71,9 +73,27 @@ bool webServerStarted = false;
 bool forceBridgeRefresh = false;
 bool restartRequested = false;
 uint32_t restartRequestedAt = 0;
-uint32_t videoFreezeUntil = 0;
+enum VideoIsolationMode : uint8_t {
+    VIDEO_TEST_NONE = 0,
+    VIDEO_TEST_FREEZE = 1,
+    VIDEO_TEST_RENDER_ONLY = 2,
+    VIDEO_TEST_SWAP_ONLY = 3
+};
+
+VideoIsolationMode videoTestMode = VIDEO_TEST_NONE;
+VideoIsolationMode requestedVideoTestMode = VIDEO_TEST_NONE;
+uint32_t videoTestUntil = 0;
+uint32_t videoTestLastStepAt = 0;
+uint32_t videoTestSteps = 0;
+retro::SceneData videoTestScene;
+
 uint32_t lastHealthLogAt = 0;
 uint32_t videoBlankWaitTimeouts = 0;
+uint32_t lastRenderDiagCacheAt = 0;
+bool cachedDiagWifiConnected = false;
+int cachedDiagRssi = -127;
+uint32_t cachedDiagFreeHeap = 0;
+uint32_t cachedDiagLargestHeap = 0;
 
 bool portalActive = false;
 bool videoStarted = false;
@@ -110,6 +130,7 @@ enum BridgeFetchResult : uint8_t {
 
 static void renderFrame();
 static void startConfigWebServer();
+static void serviceVideoIsolationTest(uint32_t now);
 
 
 static void logHeap(const char* tag) {
@@ -280,8 +301,47 @@ static void sendApiMessage(bool ok, const char* message, int code = 200) {
     sendJsonDocument(doc, code);
 }
 
+static const char* videoTestModeName(VideoIsolationMode mode) {
+    switch (mode) {
+        case VIDEO_TEST_FREEZE: return "FREEZE";
+        case VIDEO_TEST_RENDER_ONLY: return "RENDER_ONLY";
+        case VIDEO_TEST_SWAP_ONLY: return "SWAP_ONLY";
+        default: return "NONE";
+    }
+}
+
+static bool videoTestActive() {
+    return videoTestMode != VIDEO_TEST_NONE &&
+           videoTestUntil != 0 &&
+           (int32_t)(millis() - videoTestUntil) < 0;
+}
+
 static bool videoFreezeActive() {
-    return videoFreezeUntil != 0 && (int32_t)(millis() - videoFreezeUntil) < 0;
+    return videoTestActive() && videoTestMode == VIDEO_TEST_FREEZE;
+}
+
+static void refreshRenderDiagnosticCache(bool force = false) {
+    const uint32_t now = millis();
+    if (!force && now - lastRenderDiagCacheAt < RENDER_DIAG_CACHE_INTERVAL_MS) return;
+    lastRenderDiagCacheAt = now;
+    cachedDiagWifiConnected = WiFi.status() == WL_CONNECTED;
+    cachedDiagRssi = cachedDiagWifiConnected ? WiFi.RSSI() : -127;
+    cachedDiagFreeHeap = ESP.getFreeHeap();
+    cachedDiagLargestHeap = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+}
+
+static void populateSceneDiagnosticsFromCache() {
+    scene.wifiConnected = cachedDiagWifiConnected;
+    scene.diagFreeHeap = cachedDiagFreeHeap;
+    scene.diagLargestHeap = cachedDiagLargestHeap;
+    scene.diagHttpTests = 0;
+    scene.diagHttpTarget = 0;
+    scene.diagHttpOk = 0;
+    scene.diagHttpFail = 0;
+    scene.diagHttpLastMs = 0;
+    scene.diagHttpMaxMs = 0;
+    scene.diagRssi = cachedDiagRssi;
+    scene.diagWifiStressActive = false;
 }
 
 static void waitForVideoBlanking() {
@@ -332,6 +392,12 @@ static void handleApiStatus() {
     doc["free_heap"] = ESP.getFreeHeap();
     doc["largest_block"] = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
     doc["video_freeze"] = videoFreezeActive();
+    doc["video_test"] = videoTestModeName(videoTestMode);
+    doc["video_test_active"] = videoTestActive();
+    doc["video_test_remaining_sec"] = videoTestActive()
+        ? (uint32_t)((videoTestUntil - millis() + 999U) / 1000U)
+        : 0U;
+    doc["video_test_steps"] = videoTestSteps;
     doc["blank_wait_timeouts"] = videoBlankWaitTimeouts;
     doc["uptime_sec"] = millis() / 1000U;
     doc["weather"] = scene.weatherValid ? retro::conditionLabel(scene.condition) : "No data";
@@ -406,10 +472,31 @@ static void handleApiRestart() {
     sendApiMessage(true, "Restarting clock.");
 }
 
+static void queueVideoIsolationTest(VideoIsolationMode mode, const char* message) {
+    requestedVideoTestMode = mode;
+    sendApiMessage(true, message);
+}
+
+static void handleApiVideoTest() {
+    String mode = configServer.arg("mode");
+    if (mode == "freeze") {
+        queueVideoIsolationTest(VIDEO_TEST_FREEZE,
+                                "Freeze test queued for 30 seconds. No render or framebuffer swap.");
+    } else if (mode == "render") {
+        queueVideoIsolationTest(VIDEO_TEST_RENDER_ONLY,
+                                "Render-only test queued for 30 seconds. Backbuffer will redraw; displayed framebuffer stays fixed.");
+    } else if (mode == "swap") {
+        queueVideoIsolationTest(VIDEO_TEST_SWAP_ONLY,
+                                "Swap-only test queued for 30 seconds. Identical prepared buffers will swap every 500 ms.");
+    } else {
+        sendApiMessage(false, "Unknown video test mode.", 400);
+    }
+}
+
 static void handleApiVideoFreeze() {
-    videoFreezeUntil = millis() + VIDEO_FREEZE_TEST_MS;
-    Serial.println("VIDEO STABILITY TEST: framebuffer updates frozen for 30 seconds.");
-    sendApiMessage(true, "Display frozen for 30 seconds. Watch the CRT for any jumps.");
+    // Backward-compatible endpoint retained for V3.9.1 browser bookmarks.
+    requestedVideoTestMode = VIDEO_TEST_FREEZE;
+    sendApiMessage(true, "Freeze test queued for 30 seconds. No render or framebuffer swap.");
 }
 
 static void startConfigWebServer() {
@@ -427,6 +514,7 @@ static void startConfigWebServer() {
     configServer.on("/api/diagnostics", HTTP_POST, handleApiDiagnostics);
     configServer.on("/api/restart", HTTP_POST, handleApiRestart);
     configServer.on("/api/video-freeze", HTTP_POST, handleApiVideoFreeze);
+    configServer.on("/api/video-test", HTTP_POST, handleApiVideoTest);
     configServer.onNotFound([]() { configServer.send(404, "text/plain", "Not found"); });
     configServer.begin();
     webServerStarted = true;
@@ -807,35 +895,117 @@ static void updateClockFields() {
     scene.secondsToday = (uint32_t)(hour24 * 3600 + t.tm_min * 60 + t.tm_sec);
 }
 
-static void renderFrame() {
-    updateClockFields();
-    applySettingsToScene();
-
-    scene.frameMs = millis();
-    scene.wifiConnected = WiFi.status() == WL_CONNECTED;
-    scene.diagFreeHeap = ESP.getFreeHeap();
-    scene.diagLargestHeap = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
-    scene.diagHttpTests = 0;
-    scene.diagHttpTarget = 0;
-    scene.diagHttpOk = 0;
-    scene.diagHttpFail = 0;
-    scene.diagHttpLastMs = 0;
-    scene.diagHttpMaxMs = 0;
-    scene.diagRssi = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : -127;
-    scene.diagWifiStressActive = false;
-
+static void drawSceneToBackbuffer(const retro::SceneData& frameScene) {
     graphics.setHue(0);
     graphics.begin(0);
-    retro::render(backend, scene, sceneCache);
+    retro::render(backend, frameScene, sceneCache);
+}
 
+static void presentPreparedBackbuffer() {
     // The scanout ISR dereferences the current framebuffer once per active
     // scanline. Do not change that pointer halfway down the visible raster.
     // Wait for NTSC vertical blanking, then swap and repoint immediately.
     if (videoHardwareInitialized) waitForVideoBlanking();
     graphics.end();
-
     if (videoHardwareInitialized) {
         composite.sendFrameHalfResolution(&graphics.frame);
+    }
+}
+
+static void prepareLiveScene() {
+    updateClockFields();
+    applySettingsToScene();
+    scene.frameMs = millis();
+    populateSceneDiagnosticsFromCache();
+}
+
+static void renderFrame() {
+    prepareLiveScene();
+    drawSceneToBackbuffer(scene);
+    presentPreparedBackbuffer();
+}
+
+static void captureVideoTestScene() {
+    // Freeze every time-dependent input once so the isolation tests measure
+    // only the requested framebuffer operation, not WiFi/RSSI/heap queries or
+    // changes in the clock/city animation between frames.
+    prepareLiveScene();
+    videoTestScene = scene;
+}
+
+static void prepareSwapOnlyBuffers() {
+    // Put the same frozen scene in BOTH framebuffers. Once this preparation is
+    // complete, the test loop performs only graphics.end() + framebuffer
+    // handoff every 500 ms. Any jitter during the ACTIVE period therefore
+    // implicates the swap/handoff path rather than pixel rendering.
+    drawSceneToBackbuffer(videoTestScene);
+    presentPreparedBackbuffer();
+    drawSceneToBackbuffer(videoTestScene);
+}
+
+static void beginVideoIsolationTest(VideoIsolationMode mode) {
+    if (!videoStarted || mode == VIDEO_TEST_NONE) return;
+
+    requestedVideoTestMode = VIDEO_TEST_NONE;
+    videoTestMode = mode;
+    videoTestSteps = 0;
+    videoTestLastStepAt = millis();
+    captureVideoTestScene();
+
+    if (mode == VIDEO_TEST_SWAP_ONLY) {
+        Serial.println("VIDEO ISOLATION: preparing two identical framebuffers for SWAP_ONLY test...");
+        prepareSwapOnlyBuffers();
+    }
+
+    videoTestUntil = millis() + VIDEO_ISOLATION_TEST_MS;
+    Serial.printf("VIDEO ISOLATION: %s ACTIVE for 30 seconds. Bridge refresh and diagnostic-cache updates are paused.\n",
+                  videoTestModeName(mode));
+}
+
+static void finishVideoIsolationTest() {
+    const VideoIsolationMode finished = videoTestMode;
+    const uint32_t steps = videoTestSteps;
+    videoTestMode = VIDEO_TEST_NONE;
+    videoTestUntil = 0;
+    videoTestLastStepAt = 0;
+    videoTestSteps = 0;
+    refreshRenderDiagnosticCache(true);
+    Serial.printf("VIDEO ISOLATION: %s complete after %u test steps; normal rendering resumed.\n",
+                  videoTestModeName(finished), (unsigned)steps);
+    renderFrame();
+    lastDrawAt = millis();
+}
+
+static void serviceVideoIsolationTest(uint32_t now) {
+    if (requestedVideoTestMode != VIDEO_TEST_NONE && !videoTestActive()) {
+        beginVideoIsolationTest(requestedVideoTestMode);
+        now = millis();
+    }
+
+    if (videoTestMode == VIDEO_TEST_NONE) return;
+
+    if (!videoTestActive()) {
+        finishVideoIsolationTest();
+        return;
+    }
+
+    if (videoTestMode == VIDEO_TEST_FREEZE) return;
+    if (now - videoTestLastStepAt < VIDEO_ISOLATION_STEP_MS) return;
+    videoTestLastStepAt = now;
+
+    if (videoTestMode == VIDEO_TEST_RENDER_ONLY) {
+        // Intentionally redraw the hidden/back buffer only. The currently
+        // displayed front-buffer pointer never changes during this test.
+        drawSceneToBackbuffer(videoTestScene);
+        ++videoTestSteps;
+        return;
+    }
+
+    if (videoTestMode == VIDEO_TEST_SWAP_ONLY) {
+        // Both buffers were pre-rendered with identical pixels. Only swap and
+        // handoff them here; no pixel drawing occurs during the active test.
+        presentPreparedBackbuffer();
+        ++videoTestSteps;
     }
 }
 
@@ -858,6 +1028,7 @@ static bool startVideo() {
     videoHardwareInitialized = true;
 
     logHeap("post-video");
+    refreshRenderDiagnosticCache(true);
     renderFrame();
 
     // The scanout engine now runs asynchronously from the library's I2S
@@ -1020,10 +1191,12 @@ void loop() {
 
     const uint32_t now = millis();
 
-    if (videoFreezeUntil != 0 && !videoFreezeActive()) {
-        videoFreezeUntil = 0;
-        Serial.println("VIDEO STABILITY TEST complete; framebuffer updates resumed.");
-    }
+    serviceVideoIsolationTest(now);
+
+    // Keep WiFi/RSSI/heap queries out of the twice-per-second render path.
+    // Pause even this small cache refresh during isolation tests so each test
+    // has one clear variable.
+    if (!videoTestActive()) refreshRenderDiagnosticCache(false);
 
     if (previewActive && (int32_t)(now - previewExpiresAt) >= 0) {
         settings = savedSettings;
@@ -1032,7 +1205,7 @@ void loop() {
         copySettingsToRuntime();
         applySettingsToScene();
         Serial.println("Web preview expired; restored saved settings.");
-        renderFrame();
+        if (!videoTestActive()) renderFrame();
     }
 
     if (restartRequested && (int32_t)(now - restartRequestedAt) >= 0) {
@@ -1054,23 +1227,23 @@ void loop() {
         ? BUTTON_RENDER_INTERVAL_MS
         : NORMAL_RENDER_INTERVAL_MS;
 
-    if (!videoFreezeActive() && now - lastDrawAt >= renderInterval) {
+    if (!videoTestActive() && now - lastDrawAt >= renderInterval) {
         lastDrawAt = now;
         renderFrame();
     }
 
     // Normal production refresh cadence. Video scanout remains interrupt/DMA driven.
-    if (WiFi.status() == WL_CONNECTED &&
+    if (!videoTestActive() && WiFi.status() == WL_CONNECTED &&
         (forceBridgeRefresh || now - lastFetchAttemptAt >= nextFetchDelay)) {
         forceBridgeRefresh = false;
         const BridgeFetchResult result = fetchBridge();
         nextFetchDelay = (result == BRIDGE_FETCH_FRESH)
             ? FETCH_FRESH_INTERVAL_MS
             : FETCH_STALE_INTERVAL_MS;
-        if (videoStarted && !videoFreezeActive()) renderFrame();
+        if (videoStarted && !videoTestActive()) renderFrame();
     }
 
-    if (now - lastHealthLogAt >= HEALTH_LOG_INTERVAL_MS) {
+    if (!videoTestActive() && now - lastHealthLogAt >= HEALTH_LOG_INTERVAL_MS) {
         lastHealthLogAt = now;
         Serial.printf("[health] free=%u largest8=%u rssi=%d blankWaitTimeouts=%u uptime=%lus\n",
                       (unsigned)ESP.getFreeHeap(),

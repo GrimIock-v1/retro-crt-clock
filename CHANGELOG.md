@@ -1,3 +1,16 @@
+# V3.9.2 video isolation diagnostics
+
+- Added three 30-second video isolation tests to separate rendering load from framebuffer handoff behavior.
+- **Freeze**: no rendering and no swaps. Composite ISR/DMA scanout and WiFi remain active.
+- **Render-only**: repeatedly redraws one frozen scene into the hidden backbuffer every 500 ms without changing the displayed framebuffer.
+- **Swap-only**: pre-renders the same frozen scene into both framebuffers, then only swaps/hands off the identical buffers every 500 ms.
+- Normal bridge refreshes, periodic heap/RSSI sampling, and normal scene rendering are paused during an isolation test so each test changes one main variable.
+- Removed WiFi status, RSSI, free-heap, and largest-block queries from the twice-per-second render function. The renderer now consumes a diagnostic cache refreshed every 5 seconds outside the render path.
+- `/api/status` now reports the active video-test mode, remaining time, step count, and VBlank wait timeout count.
+- Retains the V3.9.1 HTTP 5-second read timeout, one timeout retry, readable HTTP error logging, and VBlank-aware framebuffer handoff.
+
+**Interpretation:** if Render-only jitters, full framebuffer drawing/memory traffic is disturbing scanout timing. If Render-only is stable but Swap-only jitters, the framebuffer swap/handoff/VBlank path is the primary suspect. If both are stable but normal mode jitters, investigate the combination of dynamic rendering, system calls, or other periodic work.
+
 # V3.9.1a build fix
 
 - Fixed the malformed newline escape in the periodic health `Serial.printf()` that prevented PlatformIO compilation.

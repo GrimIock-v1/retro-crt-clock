@@ -194,3 +194,22 @@ This build applies the latest requested polish pass: the moon now sits higher in
 - Added a five-minute heap/RSSI/video health log.
 
 If the CRT still jumps during the 30-second freeze, the issue is below the scene renderer/framebuffer-swap layer and should be investigated as interrupt/signal/power timing. If the jump stops, the prior unsynchronized buffer handoff was the likely cause.
+
+
+## V3.9.2 video isolation tests
+
+The web UI now includes three 30-second CRT timing tests:
+
+1. **Freeze** - leaves the currently displayed framebuffer untouched. No pixel rendering or framebuffer swaps occur.
+2. **Render-only** - redraws the same frozen scene into the hidden backbuffer every 500 ms, but never swaps it onto the CRT. This isolates CPU/RAM/pixel-writing load.
+3. **Swap-only** - prepares both framebuffers with identical pixels, then swaps/hands them off every 500 ms without drawing pixels during the active test. This isolates the swap/VBlank/handoff path.
+
+Run one test at a time and watch only the 30-second ACTIVE period. Normal bridge refresh, periodic heap/RSSI cache refresh, and ordinary scene rendering are paused while a test is active. Serial logs announce when preparation ends and the clean observation period begins.
+
+Interpretation:
+
+- Freeze stable + Render-only jitters -> rendering/memory traffic is disturbing composite timing.
+- Freeze stable + Render-only stable + Swap-only jitters -> swap/VBlank/framebuffer handoff is the likely fault.
+- All three stable + normal mode jitters -> investigate dynamic scene preparation, clock/system calls, bridge/web activity, or interaction between rendering and swapping.
+
+V3.9.2 also moves WiFi/RSSI/heap diagnostic queries out of `renderFrame()` and caches those values every five seconds during normal operation.

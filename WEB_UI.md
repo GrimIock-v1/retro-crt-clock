@@ -50,3 +50,10 @@ The control panel has no authentication. It is intended for a trusted home LAN. 
 - Added a five-minute heap/RSSI/video health log.
 
 If the CRT still jumps during the 30-second freeze, the issue is below the scene renderer/framebuffer-swap layer and should be investigated as interrupt/signal/power timing. If the jump stops, the prior unsynchronized buffer handoff was the likely cause.
+
+
+## V3.9.2 video isolation controls
+
+The Status card includes **Freeze 30 sec**, **Render-only 30 sec**, and **Swap-only 30 sec**. These tests are intentionally non-persistent diagnostics. They do not modify saved display settings.
+
+The `/api/video-test` POST endpoint accepts `mode=freeze`, `mode=render`, or `mode=swap`. The older `/api/video-freeze` endpoint remains as a compatibility alias for the freeze test. `/api/status` reports `video_test`, `video_test_active`, `video_test_remaining_sec`, and `video_test_steps`.
