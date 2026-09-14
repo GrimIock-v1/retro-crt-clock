@@ -1,0 +1,8 @@
+.pio/
+.vscode/
+bridge/.env
+simulator/preview
+simulator/preview*.ppm
+.DS_Store
+
+bridge/data/
