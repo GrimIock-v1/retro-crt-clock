@@ -63,3 +63,23 @@ All background luminance values are deliberately below foreground text luminance
 ## Video timing isolation strategy (V3.9.2)
 
 Because a static displayed framebuffer was observed to remain vertically stable while normal updates jittered, diagnosis now separates three operations: scanout only, backbuffer rendering only, and framebuffer swaps only. The render-only and swap-only tests use a frozen `SceneData` snapshot to avoid time/animation differences and pause unrelated periodic network/diagnostic work. This keeps the experiment useful on real analog hardware and avoids prematurely changing ISR priority or the composite generator itself.
+
+
+## V3.9.3 skyline luminance
+
+The real CRT required substantially more low-end luma than the desktop preview suggested. Skyline body/window base luminance was raised while preserving the 0-100% Background brightness control. This keeps the clock dominant while giving the physical CRT enough range to make the city clearly visible.
+
+
+## V3.9.4 lower scene cleanup
+
+The animated water/reflection treatment was removed because it did not read clearly on the physical CRT. The skyline terminates against a clean dark lower field, while the day-progress bar remains at the former horizon line.
+
+
+## V3.9.5 lower skyline
+
+Only the foreground skyline is extended to the bottom edge. The far and mid layers retain their original ground lines so the scene keeps its layered depth. The day-progress bar is drawn afterward and therefore remains readable over the foreground buildings.
+
+
+## V3.9.6 city base
+
+All three parallax skyline layers now continue to the physical bottom edge, with window lights continuing through their lower facades. The day-progress indicator is moved to the bottom edge so it no longer visually divides the city.

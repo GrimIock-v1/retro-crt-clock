@@ -35,7 +35,7 @@ static constexpr uint32_t HEALTH_LOG_INTERVAL_MS = 5UL * 60UL * 1000UL;
 
 static constexpr int BRIDGE_API_VERSION = 3;
 static constexpr int SETTINGS_VERSION = 1;
-static constexpr const char* FIRMWARE_VERSION = "3.9.2";
+static constexpr const char* FIRMWARE_VERSION = "3.9.6";
 static constexpr const char* DEFAULT_BRIDGE_URL =
     "http://crt-clock-bridge.ultramagnus.ca/status";
 
@@ -430,6 +430,21 @@ static void handleApiRevert() {
     sendApiMessage(true, "Preview reverted to saved settings.");
 }
 
+static void handleApiDefaults() {
+    settings = ClockSettings();
+    clampSettings(settings);
+    savedSettings = settings;
+    persistSettings(settings);
+    copySettingsToRuntime();
+    applySettingsToScene();
+    previewActive = false;
+    previewExpiresAt = 0;
+    applyTimezoneLive();
+    forceBridgeRefresh = true;
+    renderFrame();
+    sendApiMessage(true, "Factory clock settings restored. WiFi credentials were kept.");
+}
+
 static void handleApiSave() {
     ClockSettings next = settings;
     parseDisplaySettings(next);
@@ -509,6 +524,7 @@ static void startConfigWebServer() {
     configServer.on("/api/status", HTTP_GET, handleApiStatus);
     configServer.on("/api/preview", HTTP_POST, handleApiPreview);
     configServer.on("/api/revert", HTTP_POST, handleApiRevert);
+    configServer.on("/api/defaults", HTTP_POST, handleApiDefaults);
     configServer.on("/api/save", HTTP_POST, handleApiSave);
     configServer.on("/api/refresh", HTTP_POST, handleApiRefresh);
     configServer.on("/api/diagnostics", HTTP_POST, handleApiDiagnostics);

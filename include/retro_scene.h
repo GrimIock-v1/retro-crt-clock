@@ -603,9 +603,11 @@ RETRO_INLINE void burnInDrift(const SceneData& d, int& dx, int& dy) {
 template <typename G>
 RETRO_INLINE void drawBuilding(G& g, int x, int groundY, const Building& b,
                                uint8_t bodyLum, uint8_t windowLum,
-                               uint32_t flickerBucket, bool sparseWindows) {
+                               uint32_t flickerBucket, bool sparseWindows,
+                               bool extendToBottom) {
     const int y = groundY - b.height;
-    fill(g, x, y, b.width, b.height, bodyLum);
+    const int bodyHeight = extendToBottom ? (SCREEN_H - y) : b.height;
+    fill(g, x, y, b.width, bodyHeight, bodyLum);
 
     // A few very simple roof forms keep the skyline legible but cheap.
     if (b.roof == 0 && b.height > 78) {
@@ -618,7 +620,10 @@ RETRO_INLINE void drawBuilding(G& g, int x, int groundY, const Building& b,
     }
 
     const int cols = (b.width - 6) / 6;
-    const int rows = (b.height - 10) / 10;
+    // When a skyline layer extends to the bottom, continue the window grid
+    // through that lower facade too. Otherwise the extension reads like a
+    // featureless slab on the CRT.
+    const int rows = ((extendToBottom ? bodyHeight : b.height) - 10) / 10;
     const int threshold = sparseWindows ? 9 : 13;
 
     int slot = 0;
@@ -646,14 +651,15 @@ template <typename G, int N>
 RETRO_INLINE void drawSkylineLayer(G& g, const Building (&buildings)[N], int period,
                                     int groundY, int scrollPx, int gap,
                                     uint8_t bodyLum, uint8_t windowLum,
-                                    uint32_t flickerBucket, bool sparseWindows) {
+                                    uint32_t flickerBucket, bool sparseWindows,
+                                    bool extendToBottom) {
     if (period <= 0) return;
     const int offset = scrollPx % period;
     for (int repeat = 0; repeat < 3; ++repeat) {
         int x = repeat * period - offset - period;
         for (int i = 0; i < N; ++i) {
             drawBuilding(g, x, groundY, buildings[i], bodyLum, windowLum,
-                         flickerBucket, sparseWindows);
+                         flickerBucket, sparseWindows, extendToBottom);
             x += buildings[i].width + gap;
         }
     }
@@ -678,29 +684,6 @@ RETRO_INLINE void drawStars(G& g, uint32_t frameMs, uint8_t bgPct, uint8_t night
         const uint8_t base = (uint8_t)(7 + ((h >> 4) & 3U));
         const uint8_t lum = dimForNight(scaleLuma(base, bgPct), night, nightPct);
         if (lum) pixel(g, xs[i], ys[i], lum);
-    }
-}
-
-template <typename G>
-RETRO_INLINE void drawWater(G& g, uint32_t frameMs, uint8_t bgPct, uint8_t night, uint8_t nightPct) {
-    const int top = 216;
-    const uint8_t water = dimForNight(scaleLuma(1, bgPct), night, nightPct);
-    const uint8_t horizon = dimForNight(scaleLuma(8, bgPct), night, nightPct);
-    if (water) fill(g, 0, top, SCREEN_W, SCREEN_H - top, water);
-    if (horizon) fill(g, 0, top, SCREEN_W, 1, horizon);
-
-    const uint32_t phase = frameMs / 700U;
-    for (int i = 0; i < 18; ++i) {
-        const uint32_t h = mix32(0xA341316CU ^ (uint32_t)i * 2654435761U);
-        const int x = 8 + (int)((h + phase * (1U + (h & 1U))) % 320U);
-        const int height = 4 + (int)((h >> 8) % 17U);
-        const uint8_t base = (uint8_t)(4 + ((h >> 16) & 5U));
-        const uint8_t lum = dimForNight(scaleLuma(base, bgPct), night, nightPct);
-        if (!lum) continue;
-        for (int yy = 0; yy < height; yy += 3) {
-            const int wobble = ((int)((phase + yy + i) % 3U)) - 1;
-            fill(g, x + wobble, top + 3 + yy, 2 + (yy & 1), 1, lum);
-        }
     }
 }
 
@@ -737,17 +720,22 @@ RETRO_INLINE void drawSkyline(G& g, const SceneData& d, const SceneCache& cache)
     const int midScroll = (int)(animMs / 1550U);
     const int nearScroll = (int)(animMs / 900U);
 
+    // V3.9.3: give the real CRT substantially more skyline headroom.
+    // Around 50% now lands near the old 100% city-body brightness, while
+    // 100% remains safely below the hero clock luminance.
     drawSkylineLayer(g, cache.farBuildings, cache.farPeriod, 214, farScroll, 3,
-                     dimForNight(scaleLuma((uint8_t)(6 + dayLift), bgPct), night, d.nightBrightnessPct),
-                     dimForNight(scaleLuma(11, bgPct), night, d.nightBrightnessPct), flickerBucket, true);
+                     dimForNight(scaleLuma((uint8_t)(16 + dayLift), bgPct), night, d.nightBrightnessPct),
+                     dimForNight(scaleLuma(20, bgPct), night, d.nightBrightnessPct), flickerBucket, true, true);
     drawSkylineLayer(g, cache.midBuildings, cache.midPeriod, 215, midScroll, 4,
-                     dimForNight(scaleLuma((uint8_t)(5 + dayLift), bgPct), night, d.nightBrightnessPct),
-                     dimForNight(scaleLuma(14, bgPct), night, d.nightBrightnessPct), flickerBucket, true);
+                     dimForNight(scaleLuma((uint8_t)(13 + dayLift), bgPct), night, d.nightBrightnessPct),
+                     dimForNight(scaleLuma(24, bgPct), night, d.nightBrightnessPct), flickerBucket, true, true);
+    // All skyline layers continue to the physical bottom edge. Windows also
+    // continue through the lower facades, so gaps between foreground towers
+    // retain depth instead of revealing a flat dark strip.
     drawSkylineLayer(g, cache.nearBuildings, cache.nearPeriod, 216, nearScroll, 5,
-                     dimForNight(scaleLuma((uint8_t)(4 + dayLift), bgPct), night, d.nightBrightnessPct),
-                     dimForNight(scaleLuma(18, bgPct), night, d.nightBrightnessPct), flickerBucket, false);
+                     dimForNight(scaleLuma((uint8_t)(10 + dayLift), bgPct), night, d.nightBrightnessPct),
+                     dimForNight(scaleLuma(30, bgPct), night, d.nightBrightnessPct), flickerBucket, false, true);
 
-    drawWater(g, animMs, bgPct, night, d.nightBrightnessPct);
 }template <typename G>
 RETRO_INLINE void drawMoonCached(G& g, int cx, int cy, const MoonCache& moon, uint8_t c) {
     for (int i = 0; i < MOON_RADIUS * 2 + 1; ++i) {
@@ -763,16 +751,17 @@ RETRO_INLINE void drawMoonCached(G& g, int cx, int cy, const MoonCache& moon, ui
 
 template <typename G>
 RETRO_INLINE void drawDayHorizon(G& g, uint32_t secondsToday) {
-    const int x = SAFE_LEFT;
-    const int y = 216;
-    const int w = SAFE_RIGHT - SAFE_LEFT;
+    // Keep the day indicator at the very bottom of the raster so it reads as
+    // a small HUD element rather than a horizon/separator through the city.
+    const int x = SAFE_LEFT + 8;
+    const int y = SCREEN_H - 4;
+    const int w = (SAFE_RIGHT - SAFE_LEFT) - 16;
     int progress = (int)(((uint64_t)secondsToday * (uint64_t)w) / 86400ULL);
     progress = clampInt(progress, 0, w);
 
-    // A thicker integrated horizon line reads better on the CRT.
-    fill(g, x, y, w, 4, 7);
-    fill(g, x, y, progress, 4, 18);
-    if (progress > 0) fill(g, x + progress - 1, y - 1, 3, 6, 28);
+    fill(g, x, y, w, 2, 4);
+    if (progress > 0) fill(g, x, y, progress, 2, 18);
+    if (progress > 0) fill(g, x + progress - 1, y - 1, 2, 4, 28);
 }
 
 template <typename G>

@@ -1,3 +1,30 @@
+# V3.9.6 - Full-depth city base
+
+- Extends far, mid, and near skyline layers to the bottom edge.
+- Continues window lights through the lower extended facades.
+- Moves the day-progress indicator to a thin bottom-edge HUD treatment so it no longer reads as a separator through the skyline.
+- Keeps V3.9.2+ video-stability work and V3.9.3+ brightness controls unchanged.
+
+# V3.9.5 - Buildings to bottom
+
+- Extended the foreground skyline silhouettes to the bottom edge of the CRT frame.
+- Preserved the far and mid skyline layers for depth/parallax.
+- The day-progress bar remains overlaid on top of the foreground buildings.
+
+# V3.9.4 - Remove water reflections
+
+- Removed the animated water/reflection effect from the bottom of the city scene.
+- The lower raster is now clean/black beneath the skyline, with the day-progress bar remaining as the visual horizon.
+- No changes to video timing, web controls, or the V3.9.2 stability work.
+
+# V3.9.3 - Brighter skyline + restore defaults
+
+- Increased the three skyline body luminance levels substantially for real-CRT visibility.
+- Increased city-window luminance with the skyline while keeping the main clock brighter.
+- The Background brightness slider remains 0-100%; roughly 50% now approximates the old maximum city-body brightness, leaving useful headroom up to 100%.
+- Added **Restore defaults** to the web UI. It resets clock/network-display settings to firmware defaults, persists them immediately, reapplies the timezone/scene, and queues a bridge refresh.
+- Restore defaults intentionally keeps WiFi credentials. WiFi reset remains on the physical GPIO4 long-press flow.
+
 # V3.9.2 video isolation diagnostics
 
 - Added three 30-second video isolation tests to separate rendering load from framebuffer handoff behavior.

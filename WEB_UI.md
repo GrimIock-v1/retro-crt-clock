@@ -9,6 +9,7 @@ Open `http://<clock-ip>/` after the clock has completed normal startup. The exac
 - `GET /api/status` - current clock/network/heap status
 - `POST /api/preview` - temporarily apply display settings for 60 seconds
 - `POST /api/revert` - restore saved settings
+- `POST /api/defaults` - restore firmware defaults while keeping WiFi credentials
 - `POST /api/save` - validate, persist, and apply settings
 - `POST /api/refresh` - queue a bridge refresh
 - `POST /api/diagnostics` - toggle the CRT diagnostic screen
@@ -57,3 +58,10 @@ If the CRT still jumps during the 30-second freeze, the issue is below the scene
 The Status card includes **Freeze 30 sec**, **Render-only 30 sec**, and **Swap-only 30 sec**. These tests are intentionally non-persistent diagnostics. They do not modify saved display settings.
 
 The `/api/video-test` POST endpoint accepts `mode=freeze`, `mode=render`, or `mode=swap`. The older `/api/video-freeze` endpoint remains as a compatibility alias for the freeze test. `/api/status` reports `video_test`, `video_test_active`, `video_test_remaining_sec`, and `video_test_steps`.
+
+
+## V3.9.3 controls
+
+The Display card now includes **Restore defaults**. The action requires browser confirmation, persists the firmware defaults immediately, and does not erase WiFiManager credentials.
+
+The skyline luminance curve was also raised substantially. The Background brightness slider is still 0-100%, but the new 50% setting is intentionally in the neighborhood of the previous 100% skyline-body brightness, leaving much more useful CRT headroom.

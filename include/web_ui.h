@@ -31,7 +31,7 @@ static const char WEB_UI_HTML[] PROGMEM = R"HTML(
 <div class="field"><label for="time_format">Time format</label><select id="time_format" name="time_format"><option value="12">12-hour</option><option value="24">24-hour</option></select></div>
 <div class="field"><label for="temperature_unit">Temperature</label><select id="temperature_unit" name="temperature_unit"><option value="C">Celsius</option><option value="F">Fahrenheit</option></select></div>
 <div class="checks"><label class="check"><input id="weather_text" name="weather_text" type="checkbox"> Weather descriptor</label><label class="check"><input id="day_bar" name="day_bar" type="checkbox"> Day progress bar</label></div>
-<div class="buttons"><button class="primary" type="submit">Save settings</button><button id="previewBtn" type="button">Preview for 60 sec</button><button id="revertBtn" type="button">Revert preview</button></div>
+<div class="buttons"><button class="primary" type="submit">Save settings</button><button id="previewBtn" type="button">Preview for 60 sec</button><button id="revertBtn" type="button">Revert preview</button><button id="defaultsBtn" class="danger" type="button">Restore defaults</button></div>
 <div class="msg" id="settingsMsg" aria-live="polite"></div>
 </section>
 </form>
@@ -56,6 +56,7 @@ async function loadStatus(){try{const r=await fetch('/api/status',{cache:'no-sto
 $('settingsForm').addEventListener('submit',async e=>{e.preventDefault();try{const j=await post('/api/save',formBody(false));msg('settingsMsg',j.message||'Saved');await loadSettings();await loadStatus()}catch(e){msg('settingsMsg',e.message)}});
 $('previewBtn').addEventListener('click',async()=>{try{const j=await post('/api/preview',formBody(true));msg('settingsMsg',j.message||'Preview active for 60 seconds');await loadSettings()}catch(e){msg('settingsMsg',e.message)}});
 $('revertBtn').addEventListener('click',async()=>{try{const j=await post('/api/revert','');msg('settingsMsg',j.message||'Preview reverted');await loadSettings()}catch(e){msg('settingsMsg',e.message)}});
+$('defaultsBtn').addEventListener('click',async()=>{if(!confirm('Restore all clock settings to firmware defaults? WiFi credentials will be kept.'))return;try{const j=await post('/api/defaults','');msg('settingsMsg',j.message||'Defaults restored');await loadSettings();await loadStatus()}catch(e){msg('settingsMsg',e.message)}});
 $('refreshStatusBtn').addEventListener('click',loadStatus);
 $('refreshDataBtn').addEventListener('click',async()=>{try{const j=await post('/api/refresh','');msg('actionMsg',j.message||'Refresh queued')}catch(e){msg('actionMsg',e.message)}});
 $('diagBtn').addEventListener('click',async()=>{try{const j=await post('/api/diagnostics','');msg('actionMsg',j.message||'Diagnostics toggled')}catch(e){msg('actionMsg',e.message)}});

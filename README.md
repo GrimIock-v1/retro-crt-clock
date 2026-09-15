@@ -213,3 +213,24 @@ Interpretation:
 - All three stable + normal mode jitters -> investigate dynamic scene preparation, clock/system calls, bridge/web activity, or interaction between rendering and swapping.
 
 V3.9.2 also moves WiFi/RSSI/heap diagnostic queries out of `renderFrame()` and caches those values every five seconds during normal operation.
+
+
+## V3.9.3
+
+- Brighter skyline range for CRTs where the city was barely visible at the former 100% setting.
+- Web UI **Restore defaults** action. It restores firmware clock settings but deliberately leaves WiFi credentials intact.
+
+
+## V3.9.4
+
+Removed the animated water reflections from the bottom of the CRT scene. The day-progress bar now provides the only horizon treatment, which reads more cleanly on the physical display.
+
+
+## V3.9.5
+
+The foreground skyline now extends to the bottom edge of the frame, removing the empty lower strip while keeping the day-progress bar overlaid on top.
+
+
+## V3.9.6 city base
+
+All three parallax skyline layers now continue to the physical bottom edge, with window lights continuing through their lower facades. The day-progress indicator is moved to the bottom edge so it no longer visually divides the city.
