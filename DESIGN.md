@@ -83,3 +83,29 @@ Only the foreground skyline is extended to the bottom edge. The far and mid laye
 ## V3.9.6 city base
 
 All three parallax skyline layers now continue to the physical bottom edge, with window lights continuing through their lower facades. The day-progress indicator is moved to the bottom edge so it no longer visually divides the city.
+
+
+## V3.10 rich skyline
+
+- Reworked the skyline into a richer two-layer city rather than three simpler layers.
+- Added more varied building silhouettes, rooftop props, signs, beacons, and window patterns.
+- Preserved the bright clock-first layout while making the city feel more alive in the background.
+
+
+## V3.10.1 HP-style day bar
+
+- Raised the day-progress bar back into the lower city area.
+- Reworked it as a compact retro HP/status bar with a dim shell, dark empty track, brighter fill, and leading marker.
+- Kept the bar inset from the screen edges so it no longer reads as a city/horizon separator.
+
+
+## V3.10.2 header/weather spacing
+
+- Brought the top date/weather block slightly lower on the screen.
+- Increased the weather icon by about 10 percent.
+- Moved the icon closer to the temperature and weather descriptor.
+
+
+## V3.11 OTA design
+
+OTA is intentionally local and manual. The ESP32 does not fetch firmware from the Internet and does not use TLS for updates. The browser streams a `.bin` directly to Arduino's `Update` API, which writes the inactive OTA application partition. During the write, the clock freezes the currently displayed framebuffer and avoids unrelated network/render work. This keeps the update path small and predictable on a no-PSRAM ESP32.

@@ -22,9 +22,9 @@ static constexpr int SAFE_RIGHT = 324;
 static constexpr int SAFE_TOP = 9;
 static constexpr int SAFE_BOTTOM = 232;
 static constexpr int MOON_RADIUS = 13;
-static constexpr int FAR_BUILDING_COUNT = 28;
-static constexpr int MID_BUILDING_COUNT = 24;
-static constexpr int NEAR_BUILDING_COUNT = 20;
+static constexpr int FAR_BUILDING_COUNT = 22;
+static constexpr int MID_BUILDING_COUNT = 2;
+static constexpr int NEAR_BUILDING_COUNT = 16;
 
 // Fixed-point text scales used by the hot rendering path. 256 == 1.0x.
 static constexpr uint16_t SCALE_090 = 230;
@@ -119,6 +119,8 @@ struct Building {
     uint8_t width = 20;
     uint8_t height = 40;
     uint8_t roof = 0;
+    uint8_t windowStyle = 0;
+    uint8_t detail = 0;
     uint32_t seed = 1;
 };
 
@@ -313,6 +315,22 @@ RETRO_INLINE void drawBitmapIcon(G& g, int x, int y, const WeatherIconBitmap& ic
 }
 
 template <typename G>
+RETRO_INLINE void drawBitmapIconScaled110(G& g, int x, int y, const WeatherIconBitmap& icon, uint8_t c) {
+    // Slightly enlarge the icon with a nearest-neighbor 110% style scale so it
+    // reads a bit better on the CRT without turning into a chunky 2x sprite.
+    const int scaledW = (icon.w * 11 + 9) / 10;
+    const int scaledH = (icon.h * 11 + 9) / 10;
+    for (int sy = 0; sy < scaledH; ++sy) {
+        const int row = (sy * icon.h) / scaledH;
+        const uint32_t bits = icon.rows[row];
+        for (int sx = 0; sx < scaledW; ++sx) {
+            const int col = (sx * icon.w) / scaledW;
+            if (bits & (1UL << (icon.w - 1 - col))) pixel(g, x + sx, y + sy, c);
+        }
+    }
+}
+
+template <typename G>
 RETRO_INLINE void drawWeatherIcon(G& g, int x, int y, Condition condition, uint8_t hi) {
     const WeatherIconBitmap* icon = &ICON_UNKNOWN;
     switch (condition) {
@@ -329,7 +347,7 @@ RETRO_INLINE void drawWeatherIcon(G& g, int x, int y, Condition condition, uint8
         case CONDITION_STORM: icon = &ICON_STORM; break;
         default: icon = &ICON_UNKNOWN; break;
     }
-    drawBitmapIcon(g, x, y, *icon, hi);
+    drawBitmapIconScaled110(g, x, y, *icon, hi);
 }
 
 RETRO_INLINE const char* conditionLabel(Condition condition) {
@@ -450,25 +468,34 @@ RETRO_INLINE void prepareMoonCache(MoonCache& moon, int year, int month, int day
 RETRO_INLINE void prepareBuildings(SceneCache& cache) {
     if (cache.initialized) return;
 
+    // V3.10: simplify to two meaningful skyline layers rather than three bland ones.
+    // The distant layer carries the tall silhouette; the foreground layer carries most
+    // of the detail, lights, and personality.
     cache.farPeriod = 0;
     for (int i = 0; i < FAR_BUILDING_COUNT; ++i) {
         uint32_t h = mix32(0x514E1D2BU ^ (uint32_t)i * 2654435761U);
         Building& b = cache.farBuildings[i];
-        b.width = 10 + (h & 7);
-        b.height = 92 + ((h >> 6) % 65); // tallest layer reaches high behind clock
-        b.roof = (h >> 13) & 3;
+        b.width = 11 + (h & 11U);
+        b.height = 92 + ((h >> 6) % 74U);
+        b.roof = (h >> 13) % 7U;
+        b.windowStyle = (h >> 17) % 4U;
+        b.detail = (h >> 22) & 7U;
         b.seed = h;
         cache.farPeriod += b.width + 3;
     }
 
+    // Mid layer intentionally unused in the richer two-layer design, but keep a
+    // harmless cached definition so existing simulator tests still validate the
+    // scene cache structure.
     cache.midPeriod = 0;
     for (int i = 0; i < MID_BUILDING_COUNT; ++i) {
-        uint32_t h = mix32(0x7F4A7C15U ^ (uint32_t)i * 3266489917U);
         Building& b = cache.midBuildings[i];
-        b.width = 12 + (h & 7);
-        b.height = 68 + ((h >> 6) % 62);
-        b.roof = (h >> 12) & 3;
-        b.seed = h;
+        b.width = 180;
+        b.height = 1;
+        b.roof = 0;
+        b.windowStyle = 0;
+        b.detail = 0;
+        b.seed = 1;
         cache.midPeriod += b.width + 4;
     }
 
@@ -476,11 +503,13 @@ RETRO_INLINE void prepareBuildings(SceneCache& cache) {
     for (int i = 0; i < NEAR_BUILDING_COUNT; ++i) {
         uint32_t h = mix32(0x9E3779B9U ^ (uint32_t)i * 2246822519U);
         Building& b = cache.nearBuildings[i];
-        b.width = 16 + (h & 9);
-        b.height = 42 + ((h >> 5) % 54);
-        b.roof = (h >> 12) & 3;
+        b.width = 16 + (h & 13U);
+        b.height = 48 + ((h >> 5) % 72U);
+        b.roof = (h >> 12) % 7U;
+        b.windowStyle = (h >> 16) % 5U;
+        b.detail = (h >> 21) & 15U;
         b.seed = h;
-        cache.nearPeriod += b.width + 5;
+        cache.nearPeriod += b.width + 4;
     }
 
     cache.initialized = true;
@@ -609,40 +638,121 @@ RETRO_INLINE void drawBuilding(G& g, int x, int groundY, const Building& b,
     const int bodyHeight = extendToBottom ? (SCREEN_H - y) : b.height;
     fill(g, x, y, b.width, bodyHeight, bodyLum);
 
-    // A few very simple roof forms keep the skyline legible but cheap.
-    if (b.roof == 0 && b.height > 78) {
-        fill(g, x + b.width / 2, y - 9, 1, 9, bodyLum ? (uint8_t)(bodyLum + 1) : 0);
-        if ((b.seed & 1U) == 0U) fill(g, x + b.width / 2 + 2, y - 6, 1, 6, bodyLum ? (uint8_t)(bodyLum + 1) : 0);
-    } else if (b.roof == 1 && b.width > 18) {
-        fill(g, x + 4, y - 3, b.width - 8, 3, bodyLum);
-    } else if (b.roof == 2 && b.height > 65) {
-        fill(g, x + b.width / 2 - 2, y - 5, 5, 5, bodyLum);
+    const uint8_t roofLum = bodyLum < 62 ? (uint8_t)(bodyLum + 2) : bodyLum;
+    switch (b.roof % 7U) {
+        case 0: // antenna cluster
+            if (b.height > 70) {
+                fill(g, x + b.width / 2, y - 10, 1, 10, roofLum);
+                if (b.width > 12) fill(g, x + b.width / 2 - 3, y - 6, 1, 6, roofLum);
+                if (b.width > 15) fill(g, x + b.width / 2 + 3, y - 4, 1, 4, roofLum);
+                pixel(g, x + b.width / 2, y - 11, roofLum);
+            }
+            break;
+        case 1: // mechanical penthouse
+            if (b.width > 12) fill(g, x + 3, y - 4, b.width - 6, 4, roofLum);
+            break;
+        case 2: // water tower
+            if (b.width > 14) {
+                fill(g, x + b.width / 2 - 3, y - 6, 7, 4, roofLum);
+                fill(g, x + b.width / 2 - 2, y - 2, 1, 2, roofLum);
+                fill(g, x + b.width / 2 + 2, y - 2, 1, 2, roofLum);
+            }
+            break;
+        case 3: // stepped roof
+            fill(g, x + 2, y - 2, b.width - 4, 2, roofLum);
+            if (b.width > 10) fill(g, x + 4, y - 4, b.width - 8, 2, roofLum);
+            break;
+        case 4: // billboard
+            if (b.width > 16) {
+                fill(g, x + 2, y - 7, b.width - 4, 4, roofLum);
+                fill(g, x + 4, y - 3, 1, 3, roofLum);
+                fill(g, x + b.width - 5, y - 3, 1, 3, roofLum);
+            }
+            break;
+        case 5: // spire
+            if (b.height > 80) {
+                fill(g, x + b.width / 2, y - 12, 1, 12, roofLum);
+                fill(g, x + b.width / 2 - 1, y - 8, 3, 1, roofLum);
+            }
+            break;
+        default: // rail + hvac
+            if (b.width > 10) {
+                fill(g, x + 1, y - 1, b.width - 2, 1, roofLum);
+                fill(g, x + 3, y - 4, 4, 3, roofLum);
+                if (b.width > 18) fill(g, x + b.width - 8, y - 3, 3, 2, roofLum);
+            }
+            break;
     }
 
-    const int cols = (b.width - 6) / 6;
-    // When a skyline layer extends to the bottom, continue the window grid
-    // through that lower facade too. Otherwise the extension reads like a
-    // featureless slab on the CRT.
-    const int rows = ((extendToBottom ? bodyHeight : b.height) - 10) / 10;
-    const int threshold = sparseWindows ? 9 : 13;
-
+    const int availW = b.width - 6;
+    const int cols = availW > 0 ? (availW / 5) : 0;
+    const int rows = ((extendToBottom ? bodyHeight : b.height) - 10) / 8;
     int slot = 0;
     for (int ry = 0; ry < rows; ++ry) {
         for (int cx = 0; cx < cols; ++cx, ++slot) {
             const uint32_t h = mix32(b.seed ^ (uint32_t)slot * 3266489917U);
-            if ((int)(h % 100U) >= threshold) continue;
+            bool drawWindow = false;
+            int wx = x + 3 + cx * 5;
+            int wy = y + 5 + ry * 8;
+            int ww = 1;
+            int wh = 2;
+            switch (b.windowStyle % 5U) {
+                case 0: // office grid
+                    drawWindow = (int)(h % 100U) < (sparseWindows ? 11 : 38);
+                    ww = sparseWindows ? 1 : 2;
+                    wh = sparseWindows ? 2 : 3;
+                    break;
+                case 1: // apartment blocks
+                    drawWindow = (int)(h % 100U) < (sparseWindows ? 9 : 28);
+                    ww = 2;
+                    wh = 2;
+                    if ((ry & 1) != 0) wx += 1;
+                    break;
+                case 2: // vertical strips
+                    drawWindow = ((cx % 2) == 0) && ((int)(h % 100U) < (sparseWindows ? 18 : 46));
+                    ww = 1;
+                    wh = 3;
+                    break;
+                case 3: // sparse upper-floor lights
+                    drawWindow = (ry < rows - 2) && ((int)(h % 100U) < (sparseWindows ? 7 : 20));
+                    ww = 2;
+                    wh = 2;
+                    break;
+                default: // mixed/random facade
+                    drawWindow = (int)(h % 100U) < (sparseWindows ? 14 : 30);
+                    ww = ((h >> 9) & 1U) ? 2 : 1;
+                    wh = ((h >> 10) & 1U) ? 3 : 2;
+                    break;
+            }
+            if (!drawWindow) continue;
 
             bool on = true;
-            // Only a minority of windows actually flicker.
-            if ((h % 1000U) < 160U) {
+            if ((h % 1000U) < 200U) {
                 const uint32_t dyn = mix32(h ^ flickerBucket * 668265263U);
-                on = (dyn % 100U) < 58U;
+                on = (dyn % 100U) < 60U;
             }
             if (!on) continue;
+            uint8_t wl = windowLum ? (uint8_t)(windowLum + ((h >> 8) & 3U)) : 0;
+            if (wl) fill(g, wx, wy, ww, wh, wl);
+        }
+    }
 
-            const uint8_t wl = windowLum ? (uint8_t)(windowLum + ((h >> 8) & 3U)) : 0;
-            if (wl) fill(g, x + 3 + cx * 6, y + 6 + ry * 10,
-                         sparseWindows ? 1 : 2, sparseWindows ? 2 : 3, wl);
+    // Small facade details. Keep them restrained so the clock remains dominant.
+    if ((b.detail & 1U) && b.width > 18 && b.height > 48) {
+        // Tiny sign / billboard band.
+        const int sy = y + 14 + (int)((b.seed >> 3) % (unsigned)(b.height > 28 ? (b.height - 28) : 1));
+        fill(g, x + 2, sy, b.width - 4, 2, roofLum);
+    }
+    if ((b.detail & 2U) && b.height > 64) {
+        // Aircraft beacon on taller buildings.
+        if ((mix32(b.seed ^ flickerBucket) & 3U) != 0U) pixel(g, x + b.width / 2, y - 12, windowLum ? windowLum : roofLum);
+    }
+    if ((b.detail & 4U) && b.width > 14 && b.height > 55) {
+        // Fire-escape / ladder hint.
+        const int fx = x + b.width - 3;
+        for (int py = y + 10; py < y + (extendToBottom ? bodyHeight - 8 : b.height - 8); py += 12) {
+            fill(g, fx, py, 1, 6, roofLum);
+            fill(g, fx - 2, py + 3, 3, 1, roofLum);
         }
     }
 }
@@ -701,14 +811,14 @@ RETRO_INLINE void drawSkyline(G& g, const SceneData& d, const SceneCache& cache)
     const uint8_t night = nightLevel(d);
     const uint8_t dayLift = (uint8_t)((255U - night) / 85U); // 0..3
     const uint32_t animMs = cityFrameMs(d);
-    const uint32_t flickerBucket = animMs / 5600U;
+    const uint32_t flickerBucket = animMs / 5200U;
     const uint8_t bgPct = d.backgroundBrightnessPct;
 
     drawStars(g, animMs, bgPct, night, d.nightBrightnessPct);
 
-    const int cloudA = 330 - (int)((animMs / 3600U) % 430U);
-    const int cloudB = 260 - (int)((animMs / 5200U) % 400U);
-    const int cloudC = 390 - (int)((animMs / 7000U) % 500U);
+    const int cloudA = 332 - (int)((animMs / 3600U) % 430U);
+    const int cloudB = 258 - (int)((animMs / 5400U) % 400U);
+    const int cloudC = 392 - (int)((animMs / 7600U) % 500U);
     drawSceneCloud(g, cloudA, 42, 1, dimForNight(scaleLuma((uint8_t)(4 + dayLift), bgPct), night, d.nightBrightnessPct));
     drawSceneCloud(g, cloudB, 68, 1, dimForNight(scaleLuma((uint8_t)(4 + dayLift), bgPct), night, d.nightBrightnessPct));
     drawSceneCloud(g, cloudC, 28, 1, dimForNight(scaleLuma((uint8_t)(3 + dayLift), bgPct), night, d.nightBrightnessPct));
@@ -716,27 +826,20 @@ RETRO_INLINE void drawSkyline(G& g, const SceneData& d, const SceneCache& cache)
     drawMoonCached(g, 284, 54, cache.moon,
                    dimForNight(scaleLuma(30, bgPct), night, d.nightBrightnessPct));
 
-    const int farScroll = (int)(animMs / 2600U);
-    const int midScroll = (int)(animMs / 1550U);
-    const int nearScroll = (int)(animMs / 900U);
+    const int farScroll = (int)(animMs / 2500U);
+    const int nearScroll = (int)(animMs / 1050U);
 
-    // V3.9.3: give the real CRT substantially more skyline headroom.
-    // Around 50% now lands near the old 100% city-body brightness, while
-    // 100% remains safely below the hero clock luminance.
+    // Richer two-layer skyline. The back layer provides the taller urban mass,
+    // the front layer carries most of the detail and brighter windows.
     drawSkylineLayer(g, cache.farBuildings, cache.farPeriod, 214, farScroll, 3,
-                     dimForNight(scaleLuma((uint8_t)(16 + dayLift), bgPct), night, d.nightBrightnessPct),
-                     dimForNight(scaleLuma(20, bgPct), night, d.nightBrightnessPct), flickerBucket, true, true);
-    drawSkylineLayer(g, cache.midBuildings, cache.midPeriod, 215, midScroll, 4,
-                     dimForNight(scaleLuma((uint8_t)(13 + dayLift), bgPct), night, d.nightBrightnessPct),
+                     dimForNight(scaleLuma((uint8_t)(15 + dayLift), bgPct), night, d.nightBrightnessPct),
                      dimForNight(scaleLuma(24, bgPct), night, d.nightBrightnessPct), flickerBucket, true, true);
-    // All skyline layers continue to the physical bottom edge. Windows also
-    // continue through the lower facades, so gaps between foreground towers
-    // retain depth instead of revealing a flat dark strip.
-    drawSkylineLayer(g, cache.nearBuildings, cache.nearPeriod, 216, nearScroll, 5,
+    drawSkylineLayer(g, cache.nearBuildings, cache.nearPeriod, 217, nearScroll, 4,
                      dimForNight(scaleLuma((uint8_t)(10 + dayLift), bgPct), night, d.nightBrightnessPct),
-                     dimForNight(scaleLuma(30, bgPct), night, d.nightBrightnessPct), flickerBucket, false, true);
+                     dimForNight(scaleLuma(34, bgPct), night, d.nightBrightnessPct), flickerBucket, false, true);
+}
 
-}template <typename G>
+template <typename G>
 RETRO_INLINE void drawMoonCached(G& g, int cx, int cy, const MoonCache& moon, uint8_t c) {
     for (int i = 0; i < MOON_RADIUS * 2 + 1; ++i) {
         const int dy = i - MOON_RADIUS;
@@ -751,17 +854,28 @@ RETRO_INLINE void drawMoonCached(G& g, int cx, int cy, const MoonCache& moon, ui
 
 template <typename G>
 RETRO_INLINE void drawDayHorizon(G& g, uint32_t secondsToday) {
-    // Keep the day indicator at the very bottom of the raster so it reads as
-    // a small HUD element rather than a horizon/separator through the city.
-    const int x = SAFE_LEFT + 8;
-    const int y = SCREEN_H - 4;
-    const int w = (SAFE_RIGHT - SAFE_LEFT) - 16;
-    int progress = (int)(((uint64_t)secondsToday * (uint64_t)w) / 86400ULL);
-    progress = clampInt(progress, 0, w);
+    // V3.10.1: treat the day indicator like a compact retro HP/status bar.
+    // Raise it back into the city, keep it inset from the screen edges, and
+    // give it a distinct housing so it reads as HUD rather than a horizon.
+    const int x = 40;
+    const int y = 218;
+    const int w = 256;
+    const int innerX = x + 2;
+    const int innerY = y + 1;
+    const int innerW = w - 4;
+    int progress = (int)(((uint64_t)secondsToday * (uint64_t)innerW) / 86400ULL);
+    progress = clampInt(progress, 0, innerW);
 
-    fill(g, x, y, w, 2, 4);
-    if (progress > 0) fill(g, x, y, progress, 2, 18);
-    if (progress > 0) fill(g, x + progress - 1, y - 1, 2, 4, 28);
+    // Dim outer shell + darker empty track.
+    fill(g, x, y, w, 6, 7);
+    fill(g, innerX, innerY, innerW, 4, 3);
+
+    // Brighter filled portion, with a tiny leading highlight like an HP cursor.
+    if (progress > 0) fill(g, innerX, innerY, progress, 4, 20);
+    if (progress > 0) {
+        const int markerX = innerX + progress - 1;
+        fill(g, markerX, y, 2, 6, 30);
+    }
 }
 
 template <typename G>
@@ -865,14 +979,21 @@ RETRO_INLINE void render(G& g, const SceneData& d, SceneCache& cache) {
     int dx = 0, dy = 0;
     burnInDrift(d, dx, dy);
 
-    // Header: approved mockup placement, now all true Press Start 2P bitmaps.
-    drawTextFx(g, SAFE_LEFT + dx, 12 + dy,
+    // Header: move the date/weather cluster down a bit for more breathing room
+    // at the top edge, and pull the icon tighter to the temperature block.
+    static constexpr int HEADER_Y = 18;
+    static constexpr int WEATHER_ICON_X = 244;
+    static constexpr int WEATHER_ICON_Y = 15;
+    static constexpr int WEATHER_TEXT_Y = 18;
+    static constexpr int WEATHER_DESC_Y = 30;
+
+    drawTextFx(g, SAFE_LEFT + dx, HEADER_Y + dy,
                cache.text.dateText, SCALE_135, secondaryLum, 0);
 
-    drawWeatherIcon(g, 236 + dx, 10 + dy,
+    drawWeatherIcon(g, WEATHER_ICON_X + dx, WEATHER_ICON_Y + dy,
                     d.weatherValid ? d.condition : CONDITION_UNKNOWN,
                     primaryLum);
-    drawTemperatureCached(g, SAFE_RIGHT + dx, 12 + dy,
+    drawTemperatureCached(g, SAFE_RIGHT + dx, WEATHER_TEXT_Y + dy,
                           cache.text.tempText, cache.text.tempUnit, primaryLum);
     char tempUnitText[2] = {cache.text.tempUnit, 0};
     const int tempNumW = textWidthFx(cache.text.tempText, SCALE_135);
@@ -880,12 +1001,12 @@ RETRO_INLINE void render(G& g, const SceneData& d, SceneCache& cache) {
     const int tempDegreeW = 9;
     const int tempLeft = (SAFE_RIGHT + dx) - (tempNumW + tempDegreeW + tempUnitW);
     if (d.showWeatherText) {
-        drawWeatherDescriptor(g, tempLeft, 25 + dy,
+        drawWeatherDescriptor(g, tempLeft, WEATHER_DESC_Y + dy,
                               d.weatherValid ? d.condition : CONDITION_UNKNOWN,
                               quietLum);
     }
     if (d.weatherValid && !d.weatherFresh) {
-        drawTextFx(g, 317 + dx, 36 + dy, "*", SCALE_100, quietLum, 0);
+        drawTextFx(g, 317 + dx, 41 + dy, "*", SCALE_100, quietLum, 0);
     }
 
     // Hero clock, visually centered.

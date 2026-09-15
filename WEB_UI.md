@@ -65,3 +65,13 @@ The `/api/video-test` POST endpoint accepts `mode=freeze`, `mode=render`, or `mo
 The Display card now includes **Restore defaults**. The action requires browser confirmation, persists the firmware defaults immediately, and does not erase WiFiManager credentials.
 
 The skyline luminance curve was also raised substantially. The Background brightness slider is still 0-100%, but the new 50% setting is intentionally in the neighborhood of the previous 100% skyline-body brightness, leaving much more useful CRT headroom.
+
+
+## Firmware update
+
+- `POST /api/firmware` - streamed multipart OTA upload of PlatformIO `firmware.bin`
+- The web page shows upload progress and the inactive application-slot capacity.
+- A successful upload schedules a reboot after the HTTP response has been delivered.
+- Normal CRT rendering and bridge work are paused while flash is written.
+- Failed/aborted uploads do not intentionally change the active boot partition.
+- WiFi credentials and Preferences/NVS settings are preserved.

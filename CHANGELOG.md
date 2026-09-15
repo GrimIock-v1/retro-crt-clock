@@ -1,3 +1,39 @@
+# V3.11.0 - Browser OTA firmware updates
+
+- Added streamed `.bin` firmware upload to the existing local web UI.
+- Added upload progress, update-slot reporting, validation/error responses, and automatic reboot after a successful update.
+- Pauses scene rendering, bridge refreshes, diagnostics sampling, and video-isolation work during flash writes while leaving the current CRT framebuffer displayed.
+- Explicitly pins PlatformIO to the OTA-capable Arduino `default.csv` partition table.
+- Preserves NVS clock settings and WiFi credentials across updates.
+- Corrected the runtime firmware version string to `3.11.0`.
+
+# V3.10.2 header and weather spacing
+
+
+## V3.10.2 header/weather spacing
+
+- Brought the top date/weather block slightly lower on the screen.
+- Increased the weather icon by about 10 percent.
+- Moved the icon closer to the temperature and weather descriptor.
+
+# V3.10.1 HP-style day bar
+
+
+## V3.10.1 HP-style day bar
+
+- Raised the day-progress bar back into the lower city area.
+- Reworked it as a compact retro HP/status bar with a dim shell, dark empty track, brighter fill, and leading marker.
+- Kept the bar inset from the screen edges so it no longer reads as a city/horizon separator.
+
+# V3.10 rich skyline
+
+
+## V3.10 rich skyline
+
+- Reworked the skyline into a richer two-layer city rather than three simpler layers.
+- Added more varied building silhouettes, rooftop props, signs, beacons, and window patterns.
+- Preserved the bright clock-first layout while making the city feel more alive in the background.
+
 # V3.9.6 - Full-depth city base
 
 - Extends far, mid, and near skyline layers to the bottom edge.

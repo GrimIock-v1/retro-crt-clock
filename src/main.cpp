@@ -4,6 +4,7 @@
 #include <Preferences.h>
 #include <HTTPClient.h>
 #include <WebServer.h>
+#include <Update.h>
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>
 #include <time.h>
@@ -35,7 +36,7 @@ static constexpr uint32_t HEALTH_LOG_INTERVAL_MS = 5UL * 60UL * 1000UL;
 
 static constexpr int BRIDGE_API_VERSION = 3;
 static constexpr int SETTINGS_VERSION = 1;
-static constexpr const char* FIRMWARE_VERSION = "3.9.6";
+static constexpr const char* FIRMWARE_VERSION = "3.11.0";
 static constexpr const char* DEFAULT_BRIDGE_URL =
     "http://crt-clock-bridge.ultramagnus.ca/status";
 
@@ -73,6 +74,15 @@ bool webServerStarted = false;
 bool forceBridgeRefresh = false;
 bool restartRequested = false;
 uint32_t restartRequestedAt = 0;
+
+// Browser OTA state. During a firmware upload the displayed framebuffer is
+// intentionally left untouched and normal bridge/render work is paused.
+bool otaInProgress = false;
+bool otaUploadSucceeded = false;
+bool otaUploadFailed = false;
+uint32_t otaBytesWritten = 0;
+char otaFilename[64] = "";
+char otaError[96] = "";
 enum VideoIsolationMode : uint8_t {
     VIDEO_TEST_NONE = 0,
     VIDEO_TEST_FREEZE = 1,
@@ -361,6 +371,96 @@ static void waitForVideoBlanking() {
     }
 }
 
+static void setOtaError(const char* message) {
+    otaUploadFailed = true;
+    otaUploadSucceeded = false;
+    if (!message || !message[0]) message = "Firmware update failed.";
+    strlcpy(otaError, message, sizeof(otaError));
+    Serial.printf("OTA error: %s (Update error=%u)\n", otaError, (unsigned)Update.getError());
+}
+
+static void handleFirmwareUpload() {
+    HTTPUpload& upload = configServer.upload();
+
+    if (upload.status == UPLOAD_FILE_START) {
+        otaUploadSucceeded = false;
+        otaUploadFailed = false;
+        otaBytesWritten = 0;
+        otaError[0] = '\0';
+        strlcpy(otaFilename, upload.filename.c_str(), sizeof(otaFilename));
+
+        String lowerName = upload.filename;
+        lowerName.toLowerCase();
+        if (!lowerName.endsWith(".bin")) {
+            setOtaError("Choose a PlatformIO firmware.bin file.");
+            return;
+        }
+
+        // Stop all optional framebuffer work while flash is being written. The
+        // composite ISR continues scanning the currently displayed framebuffer.
+        requestedVideoTestMode = VIDEO_TEST_NONE;
+        videoTestMode = VIDEO_TEST_NONE;
+        videoTestUntil = 0;
+        videoTestSteps = 0;
+        otaInProgress = true;
+        forceBridgeRefresh = false;
+
+        Serial.printf("OTA upload starting: %s, update slot=%u bytes\n",
+                      otaFilename, (unsigned)ESP.getFreeSketchSpace());
+        logHeap("ota-start");
+
+        if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
+            setOtaError("Could not open the OTA application partition.");
+            otaInProgress = false;
+            return;
+        }
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+        if (otaUploadFailed || !otaInProgress) return;
+        const size_t written = Update.write(upload.buf, upload.currentSize);
+        otaBytesWritten += (uint32_t)written;
+        if (written != upload.currentSize) {
+            setOtaError("Flash write failed during firmware upload.");
+        }
+    } else if (upload.status == UPLOAD_FILE_END) {
+        if (otaUploadFailed || !otaInProgress) return;
+        if (!Update.end(true)) {
+            setOtaError("Firmware image could not be finalized or verified.");
+            otaInProgress = false;
+            return;
+        }
+        otaUploadSucceeded = true;
+        Serial.printf("OTA upload complete: %u bytes. Reboot will activate the new firmware.\n",
+                      (unsigned)otaBytesWritten);
+        logHeap("ota-complete");
+    } else if (upload.status == UPLOAD_FILE_ABORTED) {
+        setOtaError("Firmware upload was aborted.");
+        otaInProgress = false;
+        Serial.println("OTA upload aborted by client.");
+    }
+}
+
+static void handleFirmwareResult() {
+    StaticJsonDocument<320> doc;
+    if (otaUploadSucceeded && !otaUploadFailed) {
+        doc["ok"] = true;
+        doc["message"] = "Firmware accepted. The clock will restart shortly.";
+        doc["bytes"] = otaBytesWritten;
+        sendJsonDocument(doc, 200);
+
+        // Keep otaInProgress true until reboot so normal rendering/network jobs
+        // cannot resume between the response and the restart.
+        restartRequested = true;
+        restartRequestedAt = millis() + 1500U;
+        return;
+    }
+
+    otaInProgress = false;
+    doc["ok"] = false;
+    doc["message"] = otaError[0] ? otaError : "Firmware update failed.";
+    doc["update_error"] = (uint8_t)Update.getError();
+    sendJsonDocument(doc, 400);
+}
+
 static void handleApiSettings() {
     StaticJsonDocument<1024> doc;
     doc["firmware"] = FIRMWARE_VERSION;
@@ -377,6 +477,7 @@ static void handleApiSettings() {
     doc["weather_text"] = settings.weatherText;
     doc["day_bar"] = settings.dayBar;
     doc["preview_active"] = previewActive;
+    doc["ota_slot_bytes"] = ESP.getFreeSketchSpace();
     sendJsonDocument(doc);
 }
 
@@ -400,6 +501,9 @@ static void handleApiStatus() {
     doc["video_test_steps"] = videoTestSteps;
     doc["blank_wait_timeouts"] = videoBlankWaitTimeouts;
     doc["uptime_sec"] = millis() / 1000U;
+    doc["ota_in_progress"] = otaInProgress;
+    doc["ota_slot_bytes"] = ESP.getFreeSketchSpace();
+    doc["ota_bytes_written"] = otaBytesWritten;
     doc["weather"] = scene.weatherValid ? retro::conditionLabel(scene.condition) : "No data";
     char eventText[32] = "None";
     if (scene.calendarValid && scene.nextEventValid) {
@@ -531,6 +635,7 @@ static void startConfigWebServer() {
     configServer.on("/api/restart", HTTP_POST, handleApiRestart);
     configServer.on("/api/video-freeze", HTTP_POST, handleApiVideoFreeze);
     configServer.on("/api/video-test", HTTP_POST, handleApiVideoTest);
+    configServer.on("/api/firmware", HTTP_POST, handleFirmwareResult, handleFirmwareUpload);
     configServer.onNotFound([]() { configServer.send(404, "text/plain", "Not found"); });
     configServer.begin();
     webServerStarted = true;
@@ -1206,6 +1311,18 @@ void loop() {
     }
 
     const uint32_t now = millis();
+
+    // OTA writes flash in small streamed chunks. Keep the current CRT frame
+    // frozen and suspend bridge/render/diagnostic work until the upload either
+    // fails or reboots into the new firmware.
+    if (otaInProgress) {
+        if (restartRequested && (int32_t)(now - restartRequestedAt) >= 0) {
+            delay(60);
+            ESP.restart();
+        }
+        delay(1);
+        return;
+    }
 
     serviceVideoIsolationTest(now);
 
