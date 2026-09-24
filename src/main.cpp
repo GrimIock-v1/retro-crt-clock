@@ -72,6 +72,7 @@ ClockSettings savedSettings;
 bool previewActive = false;
 uint32_t previewExpiresAt = 0;
 bool webServerStarted = false;
+bool webRoutesConfigured = false;
 bool forceBridgeRefresh = false;
 bool restartRequested = false;
 uint32_t restartRequestedAt = 0;
@@ -664,23 +665,30 @@ static void handleApiVideoFreeze() {
 
 static void startConfigWebServer() {
     if (webServerStarted || WiFi.status() != WL_CONNECTED) return;
-    configServer.on("/", HTTP_GET, []() {
-        configServer.sendHeader("Cache-Control", "no-store");
-        configServer.send_P(200, "text/html", WEB_UI_HTML);
-    });
-    configServer.on("/api/settings", HTTP_GET, handleApiSettings);
-    configServer.on("/api/status", HTTP_GET, handleApiStatus);
-    configServer.on("/api/preview", HTTP_POST, handleApiPreview);
-    configServer.on("/api/revert", HTTP_POST, handleApiRevert);
-    configServer.on("/api/defaults", HTTP_POST, handleApiDefaults);
-    configServer.on("/api/save", HTTP_POST, handleApiSave);
-    configServer.on("/api/refresh", HTTP_POST, handleApiRefresh);
-    configServer.on("/api/diagnostics", HTTP_POST, handleApiDiagnostics);
-    configServer.on("/api/restart", HTTP_POST, handleApiRestart);
-    configServer.on("/api/video-freeze", HTTP_POST, handleApiVideoFreeze);
-    configServer.on("/api/video-test", HTTP_POST, handleApiVideoTest);
-    configServer.on("/api/firmware", HTTP_POST, handleFirmwareResult, handleFirmwareUpload);
-    configServer.onNotFound([]() { configServer.send(404, "text/plain", "Not found"); });
+
+    // Register handlers only once. The WiFi-off isolation test temporarily
+    // stops the listener and later restarts it after station reconnection.
+    if (!webRoutesConfigured) {
+        configServer.on("/", HTTP_GET, []() {
+            configServer.sendHeader("Cache-Control", "no-store");
+            configServer.send_P(200, "text/html", WEB_UI_HTML);
+        });
+        configServer.on("/api/settings", HTTP_GET, handleApiSettings);
+        configServer.on("/api/status", HTTP_GET, handleApiStatus);
+        configServer.on("/api/preview", HTTP_POST, handleApiPreview);
+        configServer.on("/api/revert", HTTP_POST, handleApiRevert);
+        configServer.on("/api/defaults", HTTP_POST, handleApiDefaults);
+        configServer.on("/api/save", HTTP_POST, handleApiSave);
+        configServer.on("/api/refresh", HTTP_POST, handleApiRefresh);
+        configServer.on("/api/diagnostics", HTTP_POST, handleApiDiagnostics);
+        configServer.on("/api/restart", HTTP_POST, handleApiRestart);
+        configServer.on("/api/video-freeze", HTTP_POST, handleApiVideoFreeze);
+        configServer.on("/api/video-test", HTTP_POST, handleApiVideoTest);
+        configServer.on("/api/firmware", HTTP_POST, handleFirmwareResult, handleFirmwareUpload);
+        configServer.onNotFound([]() { configServer.send(404, "text/plain", "Not found"); });
+        webRoutesConfigured = true;
+    }
+
     configServer.begin();
     webServerStarted = true;
     Serial.printf("Clock web UI: http://%s/\n", WiFi.localIP().toString().c_str());
