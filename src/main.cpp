@@ -35,8 +35,8 @@ static constexpr uint32_t RENDER_DIAG_CACHE_INTERVAL_MS = 5000;
 static constexpr uint32_t HEALTH_LOG_INTERVAL_MS = 5UL * 60UL * 1000UL;
 
 static constexpr int BRIDGE_API_VERSION = 3;
-static constexpr int SETTINGS_VERSION = 1;
-static constexpr const char* FIRMWARE_VERSION = "3.11.0";
+static constexpr int SETTINGS_VERSION = 2;
+static constexpr const char* FIRMWARE_VERSION = "3.12.0";
 static constexpr const char* DEFAULT_BRIDGE_URL =
     "http://crt-clock-bridge.ultramagnus.ca/status";
 
@@ -64,6 +64,7 @@ struct ClockSettings {
     bool weatherText = true;
     bool dayBar = true;
     uint8_t citySpeed = 2;
+    uint8_t theme = retro::THEME_CITY;
 };
 
 ClockSettings settings;
@@ -165,6 +166,7 @@ static void clampSettings(ClockSettings& cfg) {
     cfg.clockBrightness = (uint8_t)clampValue(cfg.clockBrightness, 25, 100);
     cfg.backgroundBrightness = (uint8_t)clampValue(cfg.backgroundBrightness, 0, 100);
     cfg.citySpeed = (uint8_t)clampValue(cfg.citySpeed, 0, 3);
+    cfg.theme = (uint8_t)clampValue(cfg.theme, retro::THEME_CITY, retro::THEME_RPG);
     if (!cfg.bridgeUrl[0]) strlcpy(cfg.bridgeUrl, DEFAULT_BRIDGE_URL, sizeof(cfg.bridgeUrl));
     if (!cfg.timezoneRule[0]) strlcpy(cfg.timezoneRule, "PST8PDT,M3.2.0,M11.1.0", sizeof(cfg.timezoneRule));
 }
@@ -190,6 +192,7 @@ static void loadSettings() {
     settings.weatherText = prefs.getBool("wx_text", settings.weatherText);
     settings.dayBar = prefs.getBool("day_bar", settings.dayBar);
     settings.citySpeed = prefs.getUChar("city_speed", settings.citySpeed);
+    settings.theme = prefs.getUChar("theme", settings.theme);
     prefs.end();
 
     if (storedBridge == "http://192.168.1.50:8080/api/status" ||
@@ -218,6 +221,7 @@ static void persistSettings(const ClockSettings& cfg) {
     prefs.putBool("wx_text", cfg.weatherText);
     prefs.putBool("day_bar", cfg.dayBar);
     prefs.putUChar("city_speed", cfg.citySpeed);
+    prefs.putUChar("theme", cfg.theme);
     prefs.end();
 }
 
@@ -232,6 +236,7 @@ static void applySettingsToScene() {
     scene.showWeatherText = settings.weatherText;
     scene.showDayBar = settings.dayBar;
     scene.citySpeed = settings.citySpeed;
+    scene.theme = settings.theme;
 }
 
 static void applyTimezoneLive() {
@@ -258,6 +263,7 @@ static void parseDisplaySettings(ClockSettings& cfg) {
     cfg.clockBrightness = (uint8_t)serverIntArg("clock_brightness", cfg.clockBrightness, 25, 100);
     cfg.backgroundBrightness = (uint8_t)serverIntArg("background_brightness", cfg.backgroundBrightness, 0, 100);
     cfg.citySpeed = (uint8_t)serverIntArg("city_speed", cfg.citySpeed, 0, 3);
+    cfg.theme = (uint8_t)serverIntArg("theme", cfg.theme, retro::THEME_CITY, retro::THEME_RPG);
     if (configServer.hasArg("time_format")) cfg.use24Hour = configServer.arg("time_format") == "24";
     if (configServer.hasArg("temperature_unit")) cfg.fahrenheit = configServer.arg("temperature_unit") == "F";
     cfg.weatherText = serverBoolArg("weather_text", cfg.weatherText);
@@ -472,6 +478,8 @@ static void handleApiSettings() {
     doc["clock_brightness"] = settings.clockBrightness;
     doc["background_brightness"] = settings.backgroundBrightness;
     doc["city_speed"] = settings.citySpeed;
+    doc["theme"] = settings.theme;
+    doc["theme_name"] = retro::themeName(settings.theme);
     doc["use_24h"] = settings.use24Hour;
     doc["fahrenheit"] = settings.fahrenheit;
     doc["weather_text"] = settings.weatherText;
@@ -505,6 +513,8 @@ static void handleApiStatus() {
     doc["ota_slot_bytes"] = ESP.getFreeSketchSpace();
     doc["ota_bytes_written"] = otaBytesWritten;
     doc["weather"] = scene.weatherValid ? retro::conditionLabel(scene.condition) : "No data";
+    doc["theme"] = scene.theme;
+    doc["theme_name"] = retro::themeName(scene.theme);
     char eventText[32] = "None";
     if (scene.calendarValid && scene.nextEventValid) {
         if (scene.nextEventDay[0]) snprintf(eventText, sizeof(eventText), "%s %s", scene.nextEventDay, scene.nextEventTime);
