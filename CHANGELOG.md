@@ -1,5 +1,17 @@
 # V3.11.0 - Browser OTA firmware updates
 
+## V3.12.0 - Selectable display themes
+
+- Added three selectable clock designs: Rich Cityscape, Daylight, and Retro RPG.
+- Preserved the existing Rich Cityscape renderer as the default/fallback theme.
+- Added a lightweight Daylight scene with sun, clouds, birds, and restrained two-layer urban silhouettes.
+- Added a Retro RPG layout inspired by classic framed status screens: ornamental information panels, large hero time, framed next-meeting panel, and RPG-style day meter.
+- Kept the RPG background deliberately simple so the information framing, not a complex landscape, carries the design.
+- Theme selection is persisted in NVS and participates in the existing 60-second web preview/revert flow.
+- Added theme name to the web status panel and API.
+- Added native simulator scenes for the Daylight and Retro RPG themes.
+
+
 - Added streamed `.bin` firmware upload to the existing local web UI.
 - Added upload progress, update-slot reporting, validation/error responses, and automatic reboot after a successful update.
 - Pauses scene rendering, bridge refreshes, diagnostics sampling, and video-isolation work during flash writes while leaving the current CRT framebuffer displayed.
