@@ -54,6 +54,20 @@ enum Condition : uint8_t {
     CONDITION_STORM = 11
 };
 
+enum ClockTheme : uint8_t {
+    THEME_CITY = 0,
+    THEME_DAYLIGHT = 1,
+    THEME_RPG = 2
+};
+
+RETRO_INLINE const char* themeName(uint8_t theme) {
+    switch (theme) {
+        case THEME_DAYLIGHT: return "Daylight";
+        case THEME_RPG: return "Retro RPG";
+        default: return "Rich Cityscape";
+    }
+}
+
 struct SceneData {
     bool timeValid = false;
     bool timeFromNtp = false;
@@ -95,6 +109,7 @@ struct SceneData {
     bool showWeatherText = true;
     bool showDayBar = true;
     uint8_t citySpeed = 2; // 0=off, 1=slow, 2=normal, 3=fast
+    uint8_t theme = THEME_CITY;
 
     uint32_t frameMs = 0;
     bool wifiConnected = true;
@@ -946,12 +961,241 @@ RETRO_INLINE void drawDiagnostics(G& g, const SceneData& d) {
     drawTextFx(g, 18, 211, "HOLD 3 SEC RESET WIFI", SCALE_090, 30, 0);
 }
 
+
+template <typename G>
+RETRO_INLINE void drawPixelDisc(G& g, int cx, int cy, int radius, uint8_t c) {
+    const int rr = radius * radius;
+    for (int dy = -radius; dy <= radius; ++dy) {
+        int span = 0;
+        while ((span + 1) * (span + 1) + dy * dy <= rr) ++span;
+        fill(g, cx - span, cy + dy, span * 2 + 1, 1, c);
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawDaylightBird(G& g, int x, int y, uint8_t c) {
+    pixel(g, x, y + 1, c);
+    pixel(g, x + 1, y, c);
+    pixel(g, x + 2, y + 1, c);
+    pixel(g, x + 3, y, c);
+    pixel(g, x + 4, y + 1, c);
+}
+
+template <typename G>
+RETRO_INLINE void drawDaylightTheme(G& g, const SceneData& d, const SceneCache& cache) {
+    const uint8_t bgPct = d.backgroundBrightnessPct;
+    const uint8_t clockLum = scaleLuma(54, d.clockBrightnessPct);
+    const uint8_t primaryLum = 46;
+    const uint8_t secondaryLum = 38;
+    const uint8_t quietLum = 25;
+
+    int dx = 0, dy = 0;
+    burnInDrift(d, dx, dy);
+
+    // A light grayscale sky, deliberately simple so the theme feels different
+    // without adding expensive image decoding or full-screen effects.
+    fill(g, 0, 0, SCREEN_W, SCREEN_H, scaleLuma(3, bgPct));
+
+    const uint32_t animMs = cityFrameMs(d);
+    const int cloudA = 330 - (int)((animMs / 4200U) % 420U);
+    const int cloudB = 250 - (int)((animMs / 6100U) % 390U);
+    drawSceneCloud(g, cloudA, 52, 1, scaleLuma(9, bgPct));
+    drawSceneCloud(g, cloudB, 76, 1, scaleLuma(7, bgPct));
+
+    // The daytime scene uses a simple sun rather than the lunar/night treatment.
+    drawPixelDisc(g, 283, 67, 11, scaleLuma(26, bgPct));
+    fill(g, 283, 49, 1, 5, scaleLuma(18, bgPct));
+    fill(g, 283, 80, 1, 5, scaleLuma(18, bgPct));
+    fill(g, 265, 67, 5, 1, scaleLuma(18, bgPct));
+    fill(g, 296, 67, 5, 1, scaleLuma(18, bgPct));
+
+    drawDaylightBird(g, 48, 67, scaleLuma(13, bgPct));
+    drawDaylightBird(g, 87, 47, scaleLuma(11, bgPct));
+    drawDaylightBird(g, 205, 61, scaleLuma(12, bgPct));
+
+    // Two restrained urban layers. No glowing-night look: the silhouettes do
+    // the depth work and windows stay sparse.
+    const int farScroll = (int)(animMs / 3400U);
+    const int nearScroll = (int)(animMs / 1700U);
+    drawSkylineLayer(g, cache.farBuildings, cache.farPeriod, 218, farScroll, 3,
+                     scaleLuma(9, bgPct), scaleLuma(12, bgPct),
+                     animMs / 9000U, true, true);
+    drawSkylineLayer(g, cache.nearBuildings, cache.nearPeriod, 220, nearScroll, 4,
+                     scaleLuma(13, bgPct), scaleLuma(16, bgPct),
+                     animMs / 9000U, true, true);
+
+    static constexpr int HEADER_Y = 18;
+    drawTextFx(g, SAFE_LEFT + dx, HEADER_Y + dy,
+               cache.text.dateText, SCALE_135, secondaryLum, 0);
+    drawWeatherIcon(g, 244 + dx, 15 + dy,
+                    d.weatherValid ? d.condition : CONDITION_UNKNOWN,
+                    primaryLum);
+    drawTemperatureCached(g, SAFE_RIGHT + dx, 18 + dy,
+                          cache.text.tempText, cache.text.tempUnit, primaryLum);
+
+    char unitText[2] = {cache.text.tempUnit, 0};
+    const int tempLeft = (SAFE_RIGHT + dx) -
+        (textWidthFx(cache.text.tempText, SCALE_135) + 9 + textWidthFx(unitText, SCALE_135));
+    if (d.showWeatherText) {
+        drawWeatherDescriptor(g, tempLeft, 30 + dy,
+                              d.weatherValid ? d.condition : CONDITION_UNKNOWN,
+                              quietLum);
+    }
+
+    drawClock(g, dx, dy, d.hour12, d.hour24, d.minute, d.second,
+              d.pm, d.use24Hour, clockLum);
+
+    drawTextFx(g, 46 + dx, 147 + dy, "NEXT", SCALE_115, secondaryLum, 0);
+    drawTextFx(g, 46 + dx, 162 + dy, cache.text.eventText, SCALE_155, primaryLum, 0);
+
+    drawNormalStatus(g, d, dx, dy, quietLum);
+    if (d.showDayBar) drawDayHorizon(g, d.secondsToday);
+}
+
+template <typename G>
+RETRO_INLINE void drawRpgFrame(G& g, int x, int y, int w, int h, uint8_t c) {
+    rect(g, x, y, w, h, c, 1);
+    // Chunky ornamental corners inspired by classic RPG status windows.
+    fill(g, x - 2, y + 3, 3, 1, c);
+    fill(g, x + 3, y - 2, 1, 3, c);
+    fill(g, x + w - 1, y + 3, 3, 1, c);
+    fill(g, x + w - 4, y - 2, 1, 3, c);
+    fill(g, x - 2, y + h - 4, 3, 1, c);
+    fill(g, x + 3, y + h - 1, 1, 3, c);
+    fill(g, x + w - 1, y + h - 4, 3, 1, c);
+    fill(g, x + w - 4, y + h - 1, 1, 3, c);
+}
+
+template <typename G>
+RETRO_INLINE void drawRpgDivider(G& g, int y, uint8_t c) {
+    fill(g, 22, y, 74, 1, c);
+    fill(g, 240, y, 74, 1, c);
+    fill(g, 100, y - 1, 4, 3, c);
+    fill(g, 232, y - 1, 4, 3, c);
+}
+
+template <typename G>
+RETRO_INLINE void drawRpgClock(G& g, const SceneData& d, int dx, int dy, uint8_t c) {
+    char timeText[8];
+    if (d.use24Hour) {
+        snprintf(timeText, sizeof(timeText), "%02d%c%02d",
+                 d.hour24, ((d.second & 1) == 0) ? ':' : ' ', d.minute);
+    } else {
+        snprintf(timeText, sizeof(timeText), "%d%c%02d",
+                 d.hour12, ((d.second & 1) == 0) ? ':' : ' ', d.minute);
+    }
+
+    const uint16_t sc = 1408; // 5.5x, leaves room for the RPG information panels.
+    const int w = textWidthFx(timeText, sc);
+    const int x = (SCREEN_W - w) / 2 + dx;
+    const int y = 82 + dy;
+    drawTextFx(g, x, y, timeText, sc, c, 0);
+
+    if (!d.use24Hour) {
+        drawTextFx(g, x + w + 4, y + 27, d.pm ? "PM" : "AM",
+                   SCALE_135, c > 12 ? c - 12 : c, 0);
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawRpgDayBar(G& g, uint32_t secondsToday, uint8_t frameLum, uint8_t fillLum) {
+    const int labelX = 23;
+    const int y = 211;
+    drawTextFx(g, labelX, 211, "DAY", SCALE_090, frameLum, 0);
+
+    const int x = 58;
+    const int w = 254;
+    const int h = 10;
+    int progress = (int)(((uint64_t)secondsToday * (uint64_t)(w - 6)) / 86400ULL);
+    progress = clampInt(progress, 0, w - 6);
+
+    rect(g, x, y, w, h, frameLum, 1);
+    fill(g, x + 3, y + 3, w - 6, h - 6, 5);
+    if (progress > 0) fill(g, x + 3, y + 3, progress, h - 6, fillLum);
+    if (progress > 0) fill(g, x + 2 + progress, y + 2, 2, h - 4, fillLum);
+}
+
+template <typename G>
+RETRO_INLINE void drawRpgTheme(G& g, const SceneData& d, const SceneCache& cache) {
+    fill(g, 0, 0, SCREEN_W, SCREEN_H, 0);
+
+    const uint8_t night = nightLevel(d);
+    const uint8_t clockLum = scaleLuma(dimForNight(54, night, d.nightBrightnessPct), d.clockBrightnessPct);
+    const uint8_t primaryLum = dimForNight(47, night, d.nightBrightnessPct);
+    const uint8_t secondaryLum = dimForNight(36, night, d.nightBrightnessPct);
+    const uint8_t frameLum = dimForNight(24, night, d.nightBrightnessPct);
+    const uint8_t quietLum = dimForNight(27, night, d.nightBrightnessPct);
+
+    int dx = 0, dy = 0;
+    burnInDrift(d, dx, dy);
+
+    // Intentionally restrained background. The reference direction is used for
+    // RPG framing and information hierarchy rather than a complex landscape.
+    const uint32_t twinkle = d.frameMs / 5000U;
+    for (int i = 0; i < 9; ++i) {
+        const uint32_t h = mix32((uint32_t)i * 2246822519U ^ twinkle);
+        if ((h & 3U) != 0U) pixel(g, 28 + (int)(h % 278U), 66 + (int)((h >> 8) % 66U), 7);
+    }
+
+    // Top status panel: weather at left, date at right.
+    drawRpgFrame(g, 16, 15, 304, 48, frameLum);
+    fill(g, 167, 20, 1, 38, frameLum > 3 ? frameLum - 3 : frameLum);
+    drawTextFx(g, 27 + dx, 22 + dy, "WEATHER", SCALE_090, quietLum, 0);
+    drawWeatherIcon(g, 27 + dx, 34 + dy,
+                    d.weatherValid ? d.condition : CONDITION_UNKNOWN,
+                    primaryLum);
+    drawTemperatureCached(g, 153 + dx, 35 + dy,
+                          cache.text.tempText, cache.text.tempUnit, primaryLum);
+    if (d.showWeatherText) {
+        drawWeatherDescriptor(g, 65 + dx, 49 + dy,
+                              d.weatherValid ? d.condition : CONDITION_UNKNOWN,
+                              quietLum);
+    }
+
+    drawTextFx(g, 181 + dx, 22 + dy, "DATE", SCALE_090, quietLum, 0);
+    drawTextFx(g, 181 + dx, 39 + dy, cache.text.dateText, SCALE_115, primaryLum, 0);
+
+    drawRpgDivider(g, 72, frameLum);
+    drawTextFx(g, 145, 68, "TIME", SCALE_090, quietLum, 0);
+    drawRpgClock(g, d, dx, dy, clockLum);
+    drawRpgDivider(g, 142, frameLum);
+
+    // Framed meeting panel is the main translation from the supplied RPG
+    // reference: clear label, ornamental border, large readable event.
+    drawRpgFrame(g, 22, 154, 292, 43, frameLum);
+    fill(g, 32, 150, 101, 9, 0);
+    drawTextFx(g, 34 + dx, 150 + dy, "NEXT MEETING", SCALE_090, secondaryLum, 0);
+    drawTextFx(g, 36 + dx, 171 + dy, cache.text.eventText, SCALE_135, primaryLum, 0);
+
+    if (d.calendarValid && !d.calendarFresh) {
+        drawTextFx(g, 298 + dx, 171 + dy, "*", SCALE_090, quietLum, 0);
+    }
+
+    if (d.showDayBar) drawRpgDayBar(g, d.secondsToday, frameLum, primaryLum);
+
+    if (!d.wifiConnected) {
+        drawTextFx(g, 250, 202, "OFFLINE", SCALE_090, quietLum, 0);
+    }
+}
+
+
 template <typename G>
 RETRO_INLINE void render(G& g, const SceneData& d, SceneCache& cache) {
     prepareSceneCache(cache, d);
 
     if (d.diagnosticsMode) {
         drawDiagnostics(g, d);
+        if (d.wifiResetPercent > 0) drawResetOverlay(g, d.wifiResetPercent);
+        return;
+    }
+
+    if (d.timeValid && d.theme == THEME_DAYLIGHT) {
+        drawDaylightTheme(g, d, cache);
+        if (d.wifiResetPercent > 0) drawResetOverlay(g, d.wifiResetPercent);
+        return;
+    }
+    if (d.timeValid && d.theme == THEME_RPG) {
+        drawRpgTheme(g, d, cache);
         if (d.wifiResetPercent > 0) drawResetOverlay(g, d.wifiResetPercent);
         return;
     }
