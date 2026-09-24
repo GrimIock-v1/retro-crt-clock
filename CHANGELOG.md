@@ -1,5 +1,12 @@
 # V3.11.0 - Browser OTA firmware updates
 
+## V3.12.2 - Video bootstrap fix
+
+- Fixed a startup deadlock introduced by V3.12.1 fresh-VBlank synchronization.
+- The first framebuffer handoff now occurs immediately while the composite library has no active framebuffer attached.
+- Fresh-VBlank synchronization is used only after scanout has been bootstrapped.
+
+
 ## V3.12.1 - Fresh VBlank presentation
 
 - Changed framebuffer presentation to wait for the start of a fresh NTSC blanking interval.
