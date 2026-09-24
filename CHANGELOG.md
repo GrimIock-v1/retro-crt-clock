@@ -1,5 +1,13 @@
 # V3.11.0 - Browser OTA firmware updates
 
+## V3.12.3 - WiFi isolation diagnostic
+
+- Added a 30-second WiFi-off video isolation test.
+- The test freezes the displayed framebuffer, stops the local web listener, disables the ESP32 WiFi radio, and leaves only composite scanout running.
+- WiFi station mode and the web listener restart automatically after the test.
+- This helps distinguish renderer/framebuffer issues from WiFi interrupt, RF, or power-noise effects on composite output.
+
+
 ## V3.12.2 - Video bootstrap fix
 
 - Fixed a startup deadlock introduced by V3.12.1 fresh-VBlank synchronization.
