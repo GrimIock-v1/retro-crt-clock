@@ -98,5 +98,13 @@ int main() {
     d.citySpeed = 3;
     assert(retro::cityFrameMs(d) == 20000);
 
+    // Theme IDs stay compact and stable because they are persisted in NVS.
+    assert(retro::THEME_CITY == 0);
+    assert(retro::THEME_DAYLIGHT == 1);
+    assert(retro::THEME_RPG == 2);
+    assert(strcmp(retro::themeName(retro::THEME_CITY), "Rich Cityscape") == 0);
+    assert(strcmp(retro::themeName(retro::THEME_DAYLIGHT), "Daylight") == 0);
+    assert(strcmp(retro::themeName(retro::THEME_RPG), "Retro RPG") == 0);
+
     return 0;
 }
