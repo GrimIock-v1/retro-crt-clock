@@ -48,7 +48,7 @@ static const char WEB_UI_HTML[] PROGMEM = R"HTML(
 <div class="stat"><span>RSSI</span><b id="rssi">—</b></div><div class="stat"><span>Free heap</span><b id="heap">—</b></div><div class="stat"><span>Largest block</span><b id="largest">—</b></div>
 <div class="stat"><span>Uptime</span><b id="uptime">—</b></div><div class="stat"><span>Theme</span><b id="themeStatus">—</b></div><div class="stat"><span>Weather</span><b id="weather">—</b></div><div class="stat"><span>Next event</span><b id="event">—</b></div>
 <div class="stat"><span>Video test</span><b id="videoTest">None</b></div>
-</div><div class="buttons"><button id="refreshStatusBtn" type="button">Refresh status</button><button id="refreshDataBtn" type="button">Refresh data now</button><button id="diagBtn" type="button">Toggle diagnostics</button><button id="freezeBtn" type="button">Freeze 30 sec</button><button id="renderOnlyBtn" type="button">Render-only 30 sec</button><button id="swapOnlyBtn" type="button">Swap-only 30 sec</button><button id="restartBtn" class="danger" type="button">Restart clock</button></div><div class="hint">Video isolation tests pause normal rendering, bridge refreshes, and periodic diagnostic sampling. Run one test at a time and watch the CRT during the 30-second ACTIVE period.</div><div class="msg" id="actionMsg" aria-live="polite"></div></section>
+</div><div class="buttons"><button id="refreshStatusBtn" type="button">Refresh status</button><button id="refreshDataBtn" type="button">Refresh data now</button><button id="diagBtn" type="button">Toggle diagnostics</button><button id="freezeBtn" type="button">Freeze 30 sec</button><button id="renderOnlyBtn" type="button">Render-only 30 sec</button><button id="swapOnlyBtn" type="button">Swap-only 30 sec</button><button id="wifiOffBtn" type="button">WiFi-off 30 sec</button><button id="restartBtn" class="danger" type="button">Restart clock</button></div><div class="hint">Video isolation tests pause normal rendering, bridge refreshes, and periodic diagnostic sampling. The WiFi-off test intentionally disconnects this page for about 30 seconds while composite scanout continues. Run one test at a time and watch the CRT during the ACTIVE period.</div><div class="msg" id="actionMsg" aria-live="polite"></div></section>
 <div class="hint">WiFi provisioning remains on the physical GPIO4 reset flow. The web server never starts a captive portal while composite video is running.</div>
 </main>
 <script>
@@ -72,6 +72,7 @@ async function startVideoTest(mode){try{const j=await post('/api/video-test','mo
 $('freezeBtn').addEventListener('click',()=>startVideoTest('freeze'));
 $('renderOnlyBtn').addEventListener('click',()=>startVideoTest('render'));
 $('swapOnlyBtn').addEventListener('click',()=>startVideoTest('swap'));
+$('wifiOffBtn').addEventListener('click',()=>{msg('actionMsg','Starting WiFi-off test. This page will disconnect for about 30 seconds.');startVideoTest('wifi')});
 $('firmwareBtn').addEventListener('click',()=>{
  const file=$('firmwareFile').files&&$('firmwareFile').files[0];
  if(!file){msg('firmwareMsg','Choose firmware.bin first.');return}
