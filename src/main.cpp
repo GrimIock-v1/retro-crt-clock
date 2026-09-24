@@ -36,7 +36,7 @@ static constexpr uint32_t HEALTH_LOG_INTERVAL_MS = 5UL * 60UL * 1000UL;
 
 static constexpr int BRIDGE_API_VERSION = 3;
 static constexpr int SETTINGS_VERSION = 2;
-static constexpr const char* FIRMWARE_VERSION = "3.12.0";
+static constexpr const char* FIRMWARE_VERSION = "3.12.1";
 static constexpr const char* DEFAULT_BRIDGE_URL =
     "http://crt-clock-bridge.ultramagnus.ca/status";
 
@@ -360,21 +360,42 @@ static void populateSceneDiagnosticsFromCache() {
     scene.diagWifiStressActive = false;
 }
 
-static void waitForVideoBlanking() {
-    if (!videoHardwareInitialized) return;
+static bool waitForFreshVideoBlanking() {
+    if (!videoHardwareInitialized) return true;
 
-    // The video library renders NTSC line-by-line from the currently selected
-    // framebuffer. Repointing that framebuffer during an active raster can
-    // produce a split frame / visible jump. Wait until the active 240-line
-    // region has finished, then swap during the ~1.4 ms NTSC blanking window.
+    // The library's NTSC ISR counts 0..261 and resets to 0 each frame.
+    // Lines 0..239 are active picture; 240..261 are the blanking interval.
+    //
+    // Important: if we enter this function while ALREADY in blanking, do not
+    // swap immediately. We may be on line 261 with only a few microseconds
+    // left before active video begins. First wait for the next frame's active
+    // region, then wait for the START of its following blanking interval.
+    //
+    // This makes the handoff independent of how long a particular theme took
+    // to render. Faster themes can otherwise finish during late VBlank and
+    // expose a one-frame horizontal tear / "blip".
     const uint32_t started = micros();
+    static constexpr uint32_t TIMEOUT_US = 22000U;
+
+    if (RawCompositeVideoBlitter::_line_counter >= RawCompositeVideoBlitter::_active_lines) {
+        while (RawCompositeVideoBlitter::_line_counter >= RawCompositeVideoBlitter::_active_lines) {
+            if ((uint32_t)(micros() - started) > TIMEOUT_US) {
+                ++videoBlankWaitTimeouts;
+                return false;
+            }
+            delayMicroseconds(20);
+        }
+    }
+
     while (RawCompositeVideoBlitter::_line_counter < RawCompositeVideoBlitter::_active_lines) {
-        if ((uint32_t)(micros() - started) > 18000U) {
+        if ((uint32_t)(micros() - started) > TIMEOUT_US) {
             ++videoBlankWaitTimeouts;
-            return;
+            return false;
         }
         delayMicroseconds(20);
     }
+
+    return true;
 }
 
 static void setOtaError(const char* message) {
@@ -1034,9 +1055,11 @@ static void drawSceneToBackbuffer(const retro::SceneData& frameScene) {
 
 static void presentPreparedBackbuffer() {
     // The scanout ISR dereferences the current framebuffer once per active
-    // scanline. Do not change that pointer halfway down the visible raster.
-    // Wait for NTSC vertical blanking, then swap and repoint immediately.
-    if (videoHardwareInitialized) waitForVideoBlanking();
+    // scanline. Only hand off at the START of a fresh NTSC blanking interval.
+    // If synchronization ever times out, drop this presentation rather than
+    // risk repointing the framebuffer during active video.
+    if (videoHardwareInitialized && !waitForFreshVideoBlanking()) return;
+
     graphics.end();
     if (videoHardwareInitialized) {
         composite.sendFrameHalfResolution(&graphics.frame);
