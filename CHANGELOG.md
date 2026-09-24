@@ -1,5 +1,40 @@
 # V3.11.0 - Browser OTA firmware updates
 
+## V3.12.3 - WiFi isolation diagnostic
+
+- Added a 30-second WiFi-off video isolation test.
+- The test freezes the displayed framebuffer, stops the local web listener, disables the ESP32 WiFi radio, and leaves only composite scanout running.
+- WiFi station mode and the web listener restart automatically after the test.
+- This helps distinguish renderer/framebuffer issues from WiFi interrupt, RF, or power-noise effects on composite output.
+
+
+## V3.12.2 - Video bootstrap fix
+
+- Fixed a startup deadlock introduced by V3.12.1 fresh-VBlank synchronization.
+- The first framebuffer handoff now occurs immediately while the composite library has no active framebuffer attached.
+- Fresh-VBlank synchronization is used only after scanout has been bootstrapped.
+
+
+## V3.12.1 - Fresh VBlank presentation
+
+- Changed framebuffer presentation to wait for the start of a fresh NTSC blanking interval.
+- If rendering finishes while already in VBlank, the clock now waits through the next active frame instead of swapping near the end of blanking.
+- A VBlank timeout now drops that presentation rather than risking a framebuffer handoff during active scanout.
+- This specifically targets brief horizontal tears/blips that became easier to expose with faster alternate theme renderers.
+
+
+## V3.12.0 - Selectable display themes
+
+- Added three selectable clock designs: Rich Cityscape, Daylight, and Retro RPG.
+- Preserved the existing Rich Cityscape renderer as the default/fallback theme.
+- Added a lightweight Daylight scene with sun, clouds, birds, and restrained two-layer urban silhouettes.
+- Added a Retro RPG layout inspired by classic framed status screens: ornamental information panels, large hero time, framed next-meeting panel, and RPG-style day meter.
+- Kept the RPG background deliberately simple so the information framing, not a complex landscape, carries the design.
+- Theme selection is persisted in NVS and participates in the existing 60-second web preview/revert flow.
+- Added theme name to the web status panel and API.
+- Added native simulator scenes for the Daylight and Retro RPG themes.
+
+
 - Added streamed `.bin` firmware upload to the existing local web UI.
 - Added upload progress, update-slot reporting, validation/error responses, and automatic reboot after a successful update.
 - Pauses scene rendering, bridge refreshes, diagnostics sampling, and video-isolation work during flash writes while leaving the current CRT framebuffer displayed.

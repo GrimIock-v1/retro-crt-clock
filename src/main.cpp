@@ -35,8 +35,8 @@ static constexpr uint32_t RENDER_DIAG_CACHE_INTERVAL_MS = 5000;
 static constexpr uint32_t HEALTH_LOG_INTERVAL_MS = 5UL * 60UL * 1000UL;
 
 static constexpr int BRIDGE_API_VERSION = 3;
-static constexpr int SETTINGS_VERSION = 1;
-static constexpr const char* FIRMWARE_VERSION = "3.11.0";
+static constexpr int SETTINGS_VERSION = 2;
+static constexpr const char* FIRMWARE_VERSION = "3.12.3";
 static constexpr const char* DEFAULT_BRIDGE_URL =
     "http://crt-clock-bridge.ultramagnus.ca/status";
 
@@ -64,6 +64,7 @@ struct ClockSettings {
     bool weatherText = true;
     bool dayBar = true;
     uint8_t citySpeed = 2;
+    uint8_t theme = retro::THEME_CITY;
 };
 
 ClockSettings settings;
@@ -71,6 +72,7 @@ ClockSettings savedSettings;
 bool previewActive = false;
 uint32_t previewExpiresAt = 0;
 bool webServerStarted = false;
+bool webRoutesConfigured = false;
 bool forceBridgeRefresh = false;
 bool restartRequested = false;
 uint32_t restartRequestedAt = 0;
@@ -87,7 +89,8 @@ enum VideoIsolationMode : uint8_t {
     VIDEO_TEST_NONE = 0,
     VIDEO_TEST_FREEZE = 1,
     VIDEO_TEST_RENDER_ONLY = 2,
-    VIDEO_TEST_SWAP_ONLY = 3
+    VIDEO_TEST_SWAP_ONLY = 3,
+    VIDEO_TEST_WIFI_OFF = 4
 };
 
 VideoIsolationMode videoTestMode = VIDEO_TEST_NONE;
@@ -165,6 +168,7 @@ static void clampSettings(ClockSettings& cfg) {
     cfg.clockBrightness = (uint8_t)clampValue(cfg.clockBrightness, 25, 100);
     cfg.backgroundBrightness = (uint8_t)clampValue(cfg.backgroundBrightness, 0, 100);
     cfg.citySpeed = (uint8_t)clampValue(cfg.citySpeed, 0, 3);
+    cfg.theme = (uint8_t)clampValue(cfg.theme, retro::THEME_CITY, retro::THEME_RPG);
     if (!cfg.bridgeUrl[0]) strlcpy(cfg.bridgeUrl, DEFAULT_BRIDGE_URL, sizeof(cfg.bridgeUrl));
     if (!cfg.timezoneRule[0]) strlcpy(cfg.timezoneRule, "PST8PDT,M3.2.0,M11.1.0", sizeof(cfg.timezoneRule));
 }
@@ -190,6 +194,7 @@ static void loadSettings() {
     settings.weatherText = prefs.getBool("wx_text", settings.weatherText);
     settings.dayBar = prefs.getBool("day_bar", settings.dayBar);
     settings.citySpeed = prefs.getUChar("city_speed", settings.citySpeed);
+    settings.theme = prefs.getUChar("theme", settings.theme);
     prefs.end();
 
     if (storedBridge == "http://192.168.1.50:8080/api/status" ||
@@ -218,6 +223,7 @@ static void persistSettings(const ClockSettings& cfg) {
     prefs.putBool("wx_text", cfg.weatherText);
     prefs.putBool("day_bar", cfg.dayBar);
     prefs.putUChar("city_speed", cfg.citySpeed);
+    prefs.putUChar("theme", cfg.theme);
     prefs.end();
 }
 
@@ -232,6 +238,7 @@ static void applySettingsToScene() {
     scene.showWeatherText = settings.weatherText;
     scene.showDayBar = settings.dayBar;
     scene.citySpeed = settings.citySpeed;
+    scene.theme = settings.theme;
 }
 
 static void applyTimezoneLive() {
@@ -258,6 +265,7 @@ static void parseDisplaySettings(ClockSettings& cfg) {
     cfg.clockBrightness = (uint8_t)serverIntArg("clock_brightness", cfg.clockBrightness, 25, 100);
     cfg.backgroundBrightness = (uint8_t)serverIntArg("background_brightness", cfg.backgroundBrightness, 0, 100);
     cfg.citySpeed = (uint8_t)serverIntArg("city_speed", cfg.citySpeed, 0, 3);
+    cfg.theme = (uint8_t)serverIntArg("theme", cfg.theme, retro::THEME_CITY, retro::THEME_RPG);
     if (configServer.hasArg("time_format")) cfg.use24Hour = configServer.arg("time_format") == "24";
     if (configServer.hasArg("temperature_unit")) cfg.fahrenheit = configServer.arg("temperature_unit") == "F";
     cfg.weatherText = serverBoolArg("weather_text", cfg.weatherText);
@@ -316,6 +324,7 @@ static const char* videoTestModeName(VideoIsolationMode mode) {
         case VIDEO_TEST_FREEZE: return "FREEZE";
         case VIDEO_TEST_RENDER_ONLY: return "RENDER_ONLY";
         case VIDEO_TEST_SWAP_ONLY: return "SWAP_ONLY";
+        case VIDEO_TEST_WIFI_OFF: return "WIFI_OFF";
         default: return "NONE";
     }
 }
@@ -354,21 +363,50 @@ static void populateSceneDiagnosticsFromCache() {
     scene.diagWifiStressActive = false;
 }
 
-static void waitForVideoBlanking() {
-    if (!videoHardwareInitialized) return;
+static bool waitForFreshVideoBlanking() {
+    if (!videoHardwareInitialized) return true;
 
-    // The video library renders NTSC line-by-line from the currently selected
-    // framebuffer. Repointing that framebuffer during an active raster can
-    // produce a split frame / visible jump. Wait until the active 240-line
-    // region has finished, then swap during the ~1.4 ms NTSC blanking window.
+    // Bootstrap exception: before the first sendFrameHalfResolution() call,
+    // the composite library has no framebuffer pointer (_lines == nullptr).
+    // Its ISR returns before incrementing _line_counter in that state, so
+    // waiting for VBlank here would deadlock startup forever. The first
+    // framebuffer handoff is safe to perform immediately because there is no
+    // active picture source to tear yet.
+    if (RawCompositeVideoBlitter::_lines == nullptr) return true;
+
+    // The library's NTSC ISR counts 0..261 and resets to 0 each frame.
+    // Lines 0..239 are active picture; 240..261 are the blanking interval.
+    //
+    // Important: if we enter this function while ALREADY in blanking, do not
+    // swap immediately. We may be on line 261 with only a few microseconds
+    // left before active video begins. First wait for the next frame's active
+    // region, then wait for the START of its following blanking interval.
+    //
+    // This makes the handoff independent of how long a particular theme took
+    // to render. Faster themes can otherwise finish during late VBlank and
+    // expose a one-frame horizontal tear / "blip".
     const uint32_t started = micros();
+    static constexpr uint32_t TIMEOUT_US = 22000U;
+
+    if (RawCompositeVideoBlitter::_line_counter >= RawCompositeVideoBlitter::_active_lines) {
+        while (RawCompositeVideoBlitter::_line_counter >= RawCompositeVideoBlitter::_active_lines) {
+            if ((uint32_t)(micros() - started) > TIMEOUT_US) {
+                ++videoBlankWaitTimeouts;
+                return false;
+            }
+            delayMicroseconds(20);
+        }
+    }
+
     while (RawCompositeVideoBlitter::_line_counter < RawCompositeVideoBlitter::_active_lines) {
-        if ((uint32_t)(micros() - started) > 18000U) {
+        if ((uint32_t)(micros() - started) > TIMEOUT_US) {
             ++videoBlankWaitTimeouts;
-            return;
+            return false;
         }
         delayMicroseconds(20);
     }
+
+    return true;
 }
 
 static void setOtaError(const char* message) {
@@ -472,6 +510,8 @@ static void handleApiSettings() {
     doc["clock_brightness"] = settings.clockBrightness;
     doc["background_brightness"] = settings.backgroundBrightness;
     doc["city_speed"] = settings.citySpeed;
+    doc["theme"] = settings.theme;
+    doc["theme_name"] = retro::themeName(settings.theme);
     doc["use_24h"] = settings.use24Hour;
     doc["fahrenheit"] = settings.fahrenheit;
     doc["weather_text"] = settings.weatherText;
@@ -505,6 +545,8 @@ static void handleApiStatus() {
     doc["ota_slot_bytes"] = ESP.getFreeSketchSpace();
     doc["ota_bytes_written"] = otaBytesWritten;
     doc["weather"] = scene.weatherValid ? retro::conditionLabel(scene.condition) : "No data";
+    doc["theme"] = scene.theme;
+    doc["theme_name"] = retro::themeName(scene.theme);
     char eventText[32] = "None";
     if (scene.calendarValid && scene.nextEventValid) {
         if (scene.nextEventDay[0]) snprintf(eventText, sizeof(eventText), "%s %s", scene.nextEventDay, scene.nextEventTime);
@@ -607,6 +649,9 @@ static void handleApiVideoTest() {
     } else if (mode == "swap") {
         queueVideoIsolationTest(VIDEO_TEST_SWAP_ONLY,
                                 "Swap-only test queued for 30 seconds. Identical prepared buffers will swap every 500 ms.");
+    } else if (mode == "wifi") {
+        queueVideoIsolationTest(VIDEO_TEST_WIFI_OFF,
+                                "WiFi-off test queued for 30 seconds. The web page will temporarily disconnect while composite scanout continues.");
     } else {
         sendApiMessage(false, "Unknown video test mode.", 400);
     }
@@ -620,23 +665,30 @@ static void handleApiVideoFreeze() {
 
 static void startConfigWebServer() {
     if (webServerStarted || WiFi.status() != WL_CONNECTED) return;
-    configServer.on("/", HTTP_GET, []() {
-        configServer.sendHeader("Cache-Control", "no-store");
-        configServer.send_P(200, "text/html", WEB_UI_HTML);
-    });
-    configServer.on("/api/settings", HTTP_GET, handleApiSettings);
-    configServer.on("/api/status", HTTP_GET, handleApiStatus);
-    configServer.on("/api/preview", HTTP_POST, handleApiPreview);
-    configServer.on("/api/revert", HTTP_POST, handleApiRevert);
-    configServer.on("/api/defaults", HTTP_POST, handleApiDefaults);
-    configServer.on("/api/save", HTTP_POST, handleApiSave);
-    configServer.on("/api/refresh", HTTP_POST, handleApiRefresh);
-    configServer.on("/api/diagnostics", HTTP_POST, handleApiDiagnostics);
-    configServer.on("/api/restart", HTTP_POST, handleApiRestart);
-    configServer.on("/api/video-freeze", HTTP_POST, handleApiVideoFreeze);
-    configServer.on("/api/video-test", HTTP_POST, handleApiVideoTest);
-    configServer.on("/api/firmware", HTTP_POST, handleFirmwareResult, handleFirmwareUpload);
-    configServer.onNotFound([]() { configServer.send(404, "text/plain", "Not found"); });
+
+    // Register handlers only once. The WiFi-off isolation test temporarily
+    // stops the listener and later restarts it after station reconnection.
+    if (!webRoutesConfigured) {
+        configServer.on("/", HTTP_GET, []() {
+            configServer.sendHeader("Cache-Control", "no-store");
+            configServer.send_P(200, "text/html", WEB_UI_HTML);
+        });
+        configServer.on("/api/settings", HTTP_GET, handleApiSettings);
+        configServer.on("/api/status", HTTP_GET, handleApiStatus);
+        configServer.on("/api/preview", HTTP_POST, handleApiPreview);
+        configServer.on("/api/revert", HTTP_POST, handleApiRevert);
+        configServer.on("/api/defaults", HTTP_POST, handleApiDefaults);
+        configServer.on("/api/save", HTTP_POST, handleApiSave);
+        configServer.on("/api/refresh", HTTP_POST, handleApiRefresh);
+        configServer.on("/api/diagnostics", HTTP_POST, handleApiDiagnostics);
+        configServer.on("/api/restart", HTTP_POST, handleApiRestart);
+        configServer.on("/api/video-freeze", HTTP_POST, handleApiVideoFreeze);
+        configServer.on("/api/video-test", HTTP_POST, handleApiVideoTest);
+        configServer.on("/api/firmware", HTTP_POST, handleFirmwareResult, handleFirmwareUpload);
+        configServer.onNotFound([]() { configServer.send(404, "text/plain", "Not found"); });
+        webRoutesConfigured = true;
+    }
+
     configServer.begin();
     webServerStarted = true;
     Serial.printf("Clock web UI: http://%s/\n", WiFi.localIP().toString().c_str());
@@ -1024,9 +1076,11 @@ static void drawSceneToBackbuffer(const retro::SceneData& frameScene) {
 
 static void presentPreparedBackbuffer() {
     // The scanout ISR dereferences the current framebuffer once per active
-    // scanline. Do not change that pointer halfway down the visible raster.
-    // Wait for NTSC vertical blanking, then swap and repoint immediately.
-    if (videoHardwareInitialized) waitForVideoBlanking();
+    // scanline. Only hand off at the START of a fresh NTSC blanking interval.
+    // If synchronization ever times out, drop this presentation rather than
+    // risk repointing the framebuffer during active video.
+    if (videoHardwareInitialized && !waitForFreshVideoBlanking()) return;
+
     graphics.end();
     if (videoHardwareInitialized) {
         composite.sendFrameHalfResolution(&graphics.frame);
@@ -1079,6 +1133,24 @@ static void beginVideoIsolationTest(VideoIsolationMode mode) {
     }
 
     videoTestUntil = millis() + VIDEO_ISOLATION_TEST_MS;
+
+    if (mode == VIDEO_TEST_WIFI_OFF) {
+        // The API response that queued this test has already been generated.
+        // Give the TCP stack a brief chance to flush it, then remove the WiFi
+        // radio entirely. The displayed framebuffer remains untouched while
+        // the composite ISR/DMA continues scanning it.
+        Serial.println("VIDEO ISOLATION: WIFI_OFF test armed; shutting WiFi radio down for 30 seconds...");
+        delay(150);
+        if (webServerStarted) {
+            configServer.stop();
+            webServerStarted = false;
+        }
+        WiFi.disconnect(false, false);
+        WiFi.mode(WIFI_OFF);
+        cachedDiagWifiConnected = false;
+        cachedDiagRssi = -127;
+    }
+
     Serial.printf("VIDEO ISOLATION: %s ACTIVE for 30 seconds. Bridge refresh and diagnostic-cache updates are paused.\n",
                   videoTestModeName(mode));
 }
@@ -1090,6 +1162,13 @@ static void finishVideoIsolationTest() {
     videoTestUntil = 0;
     videoTestLastStepAt = 0;
     videoTestSteps = 0;
+
+    if (finished == VIDEO_TEST_WIFI_OFF) {
+        Serial.println("VIDEO ISOLATION: restoring WiFi station mode...");
+        WiFi.mode(WIFI_STA);
+        WiFi.begin(); // Reuse credentials already stored by WiFiManager/ESP32.
+    }
+
     refreshRenderDiagnosticCache(true);
     Serial.printf("VIDEO ISOLATION: %s complete after %u test steps; normal rendering resumed.\n",
                   videoTestModeName(finished), (unsigned)steps);
@@ -1110,7 +1189,7 @@ static void serviceVideoIsolationTest(uint32_t now) {
         return;
     }
 
-    if (videoTestMode == VIDEO_TEST_FREEZE) return;
+    if (videoTestMode == VIDEO_TEST_FREEZE || videoTestMode == VIDEO_TEST_WIFI_OFF) return;
     if (now - videoTestLastStepAt < VIDEO_ISOLATION_STEP_MS) return;
     videoTestLastStepAt = now;
 
@@ -1348,7 +1427,8 @@ void loop() {
 
     // Never reopen a captive portal while video is running. Ordinary station
     // reconnection is safe; GPIO4 reset reboots into the video-off setup path.
-    if (WiFi.status() != WL_CONNECTED) {
+    if (WiFi.status() != WL_CONNECTED &&
+        !(videoTestActive() && videoTestMode == VIDEO_TEST_WIFI_OFF)) {
         static uint32_t lastReconnectAt = 0;
         if (millis() - lastReconnectAt > 10000U) {
             WiFi.reconnect();
