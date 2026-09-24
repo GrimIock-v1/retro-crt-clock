@@ -1,5 +1,13 @@
 # V3.11.0 - Browser OTA firmware updates
 
+## V3.12.1 - Fresh VBlank presentation
+
+- Changed framebuffer presentation to wait for the start of a fresh NTSC blanking interval.
+- If rendering finishes while already in VBlank, the clock now waits through the next active frame instead of swapping near the end of blanking.
+- A VBlank timeout now drops that presentation rather than risking a framebuffer handoff during active scanout.
+- This specifically targets brief horizontal tears/blips that became easier to expose with faster alternate theme renderers.
+
+
 ## V3.12.0 - Selectable display themes
 
 - Added three selectable clock designs: Rich Cityscape, Daylight, and Retro RPG.
