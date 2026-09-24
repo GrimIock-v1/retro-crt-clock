@@ -36,7 +36,7 @@ static constexpr uint32_t HEALTH_LOG_INTERVAL_MS = 5UL * 60UL * 1000UL;
 
 static constexpr int BRIDGE_API_VERSION = 3;
 static constexpr int SETTINGS_VERSION = 2;
-static constexpr const char* FIRMWARE_VERSION = "3.12.1";
+static constexpr const char* FIRMWARE_VERSION = "3.12.2";
 static constexpr const char* DEFAULT_BRIDGE_URL =
     "http://crt-clock-bridge.ultramagnus.ca/status";
 
@@ -362,6 +362,14 @@ static void populateSceneDiagnosticsFromCache() {
 
 static bool waitForFreshVideoBlanking() {
     if (!videoHardwareInitialized) return true;
+
+    // Bootstrap exception: before the first sendFrameHalfResolution() call,
+    // the composite library has no framebuffer pointer (_lines == nullptr).
+    // Its ISR returns before incrementing _line_counter in that state, so
+    // waiting for VBlank here would deadlock startup forever. The first
+    // framebuffer handoff is safe to perform immediately because there is no
+    // active picture source to tear yet.
+    if (RawCompositeVideoBlitter::_lines == nullptr) return true;
 
     // The library's NTSC ISR counts 0..261 and resets to 0 each frame.
     // Lines 0..239 are active picture; 240..261 are the blanking interval.
