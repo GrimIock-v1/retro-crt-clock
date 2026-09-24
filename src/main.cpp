@@ -36,7 +36,7 @@ static constexpr uint32_t HEALTH_LOG_INTERVAL_MS = 5UL * 60UL * 1000UL;
 
 static constexpr int BRIDGE_API_VERSION = 3;
 static constexpr int SETTINGS_VERSION = 2;
-static constexpr const char* FIRMWARE_VERSION = "3.12.2";
+static constexpr const char* FIRMWARE_VERSION = "3.12.3";
 static constexpr const char* DEFAULT_BRIDGE_URL =
     "http://crt-clock-bridge.ultramagnus.ca/status";
 
@@ -88,7 +88,8 @@ enum VideoIsolationMode : uint8_t {
     VIDEO_TEST_NONE = 0,
     VIDEO_TEST_FREEZE = 1,
     VIDEO_TEST_RENDER_ONLY = 2,
-    VIDEO_TEST_SWAP_ONLY = 3
+    VIDEO_TEST_SWAP_ONLY = 3,
+    VIDEO_TEST_WIFI_OFF = 4
 };
 
 VideoIsolationMode videoTestMode = VIDEO_TEST_NONE;
@@ -322,6 +323,7 @@ static const char* videoTestModeName(VideoIsolationMode mode) {
         case VIDEO_TEST_FREEZE: return "FREEZE";
         case VIDEO_TEST_RENDER_ONLY: return "RENDER_ONLY";
         case VIDEO_TEST_SWAP_ONLY: return "SWAP_ONLY";
+        case VIDEO_TEST_WIFI_OFF: return "WIFI_OFF";
         default: return "NONE";
     }
 }
@@ -646,6 +648,9 @@ static void handleApiVideoTest() {
     } else if (mode == "swap") {
         queueVideoIsolationTest(VIDEO_TEST_SWAP_ONLY,
                                 "Swap-only test queued for 30 seconds. Identical prepared buffers will swap every 500 ms.");
+    } else if (mode == "wifi") {
+        queueVideoIsolationTest(VIDEO_TEST_WIFI_OFF,
+                                "WiFi-off test queued for 30 seconds. The web page will temporarily disconnect while composite scanout continues.");
     } else {
         sendApiMessage(false, "Unknown video test mode.", 400);
     }
@@ -1120,6 +1125,24 @@ static void beginVideoIsolationTest(VideoIsolationMode mode) {
     }
 
     videoTestUntil = millis() + VIDEO_ISOLATION_TEST_MS;
+
+    if (mode == VIDEO_TEST_WIFI_OFF) {
+        // The API response that queued this test has already been generated.
+        // Give the TCP stack a brief chance to flush it, then remove the WiFi
+        // radio entirely. The displayed framebuffer remains untouched while
+        // the composite ISR/DMA continues scanning it.
+        Serial.println("VIDEO ISOLATION: WIFI_OFF test armed; shutting WiFi radio down for 30 seconds...");
+        delay(150);
+        if (webServerStarted) {
+            configServer.stop();
+            webServerStarted = false;
+        }
+        WiFi.disconnect(false, false);
+        WiFi.mode(WIFI_OFF);
+        cachedDiagWifiConnected = false;
+        cachedDiagRssi = -127;
+    }
+
     Serial.printf("VIDEO ISOLATION: %s ACTIVE for 30 seconds. Bridge refresh and diagnostic-cache updates are paused.\n",
                   videoTestModeName(mode));
 }
@@ -1131,6 +1154,13 @@ static void finishVideoIsolationTest() {
     videoTestUntil = 0;
     videoTestLastStepAt = 0;
     videoTestSteps = 0;
+
+    if (finished == VIDEO_TEST_WIFI_OFF) {
+        Serial.println("VIDEO ISOLATION: restoring WiFi station mode...");
+        WiFi.mode(WIFI_STA);
+        WiFi.begin(); // Reuse credentials already stored by WiFiManager/ESP32.
+    }
+
     refreshRenderDiagnosticCache(true);
     Serial.printf("VIDEO ISOLATION: %s complete after %u test steps; normal rendering resumed.\n",
                   videoTestModeName(finished), (unsigned)steps);
@@ -1151,7 +1181,7 @@ static void serviceVideoIsolationTest(uint32_t now) {
         return;
     }
 
-    if (videoTestMode == VIDEO_TEST_FREEZE) return;
+    if (videoTestMode == VIDEO_TEST_FREEZE || videoTestMode == VIDEO_TEST_WIFI_OFF) return;
     if (now - videoTestLastStepAt < VIDEO_ISOLATION_STEP_MS) return;
     videoTestLastStepAt = now;
 
@@ -1389,7 +1419,8 @@ void loop() {
 
     // Never reopen a captive portal while video is running. Ordinary station
     // reconnection is safe; GPIO4 reset reboots into the video-off setup path.
-    if (WiFi.status() != WL_CONNECTED) {
+    if (WiFi.status() != WL_CONNECTED &&
+        !(videoTestActive() && videoTestMode == VIDEO_TEST_WIFI_OFF)) {
         static uint32_t lastReconnectAt = 0;
         if (millis() - lastReconnectAt > 10000U) {
             WiFi.reconnect();
