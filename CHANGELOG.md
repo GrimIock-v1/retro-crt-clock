@@ -1,5 +1,13 @@
 # V3.11.0 - Browser OTA firmware updates
 
+## V3.12.5 - Remove Daylight theme
+
+- Removed the Daylight renderer and its web selector option because it was too visually similar to Rich Cityscape.
+- Kept the old numeric theme ID reserved so persisted theme values do not shift to another design.
+- Any previously saved Daylight selection now falls back to Rich Cityscape.
+- Removed the Daylight simulator preview while retaining Rich Cityscape, Retro RPG, and Digital Rain.
+
+
 ## V3.12.4 - Digital Rain theme
 
 - Added a fourth selectable clock design: Digital Rain.
