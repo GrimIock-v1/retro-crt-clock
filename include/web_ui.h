@@ -22,7 +22,7 @@ static const char WEB_UI_HTML[] PROGMEM = R"HTML(
 <div class="field"><label for="timezone_rule">Timezone (POSIX rule)</label><input id="timezone_rule" name="timezone_rule" type="text" autocomplete="off" spellcheck="false"><div class="hint">Pacific example: PST8PDT,M3.2.0,M11.1.0</div></div>
 </section>
 <section class="card"><h2>Display</h2>
-<div class="field"><label for="theme">Clock design</label><select id="theme" name="theme"><option value="0">Rich Cityscape</option><option value="1">Daylight</option><option value="2">Retro RPG</option><option value="3">Digital Rain</option></select><div class="hint">Theme changes can be previewed on the CRT for 60 seconds before saving.</div></div>
+<div class="field"><label for="theme">Clock design</label><select id="theme" name="theme"><option value="0">Rich Cityscape</option><option value="2">Retro RPG</option><option value="3">Digital Rain</option></select><div class="hint">Theme changes can be previewed on the CRT for 60 seconds before saving.</div></div>
 <div class="field"><label for="drift_pixels">Burn-in drift <span class="value"><span id="drift_pixels_v"></span> px</span></label><input id="drift_pixels" name="drift_pixels" type="range" min="0" max="5" step="1"></div>
 <div class="field"><label for="drift_minutes">Drift interval <span class="value"><span id="drift_minutes_v"></span> min</span></label><input id="drift_minutes" name="drift_minutes" type="range" min="1" max="120" step="1"></div>
 <div class="field"><label for="night_brightness">Night brightness <span class="value"><span id="night_brightness_v"></span>%</span></label><input id="night_brightness" name="night_brightness" type="range" min="10" max="100" step="1"></div>
