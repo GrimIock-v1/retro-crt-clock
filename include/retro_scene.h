@@ -56,14 +56,15 @@ enum Condition : uint8_t {
 
 enum ClockTheme : uint8_t {
     THEME_CITY = 0,
-    THEME_DAYLIGHT = 1,
+    // ID 1 was the removed Daylight theme. Keep the numeric slot reserved so
+    // previously persisted theme IDs never shift to a different design.
+    THEME_DAYLIGHT_RESERVED = 1,
     THEME_RPG = 2,
     THEME_DIGITAL_RAIN = 3
 };
 
 RETRO_INLINE const char* themeName(uint8_t theme) {
     switch (theme) {
-        case THEME_DAYLIGHT: return "Daylight";
         case THEME_RPG: return "Retro RPG";
         case THEME_DIGITAL_RAIN: return "Digital Rain";
         default: return "Rich Cityscape";
@@ -965,96 +966,6 @@ RETRO_INLINE void drawDiagnostics(G& g, const SceneData& d) {
 
 
 template <typename G>
-RETRO_INLINE void drawPixelDisc(G& g, int cx, int cy, int radius, uint8_t c) {
-    const int rr = radius * radius;
-    for (int dy = -radius; dy <= radius; ++dy) {
-        int span = 0;
-        while ((span + 1) * (span + 1) + dy * dy <= rr) ++span;
-        fill(g, cx - span, cy + dy, span * 2 + 1, 1, c);
-    }
-}
-
-template <typename G>
-RETRO_INLINE void drawDaylightBird(G& g, int x, int y, uint8_t c) {
-    pixel(g, x, y + 1, c);
-    pixel(g, x + 1, y, c);
-    pixel(g, x + 2, y + 1, c);
-    pixel(g, x + 3, y, c);
-    pixel(g, x + 4, y + 1, c);
-}
-
-template <typename G>
-RETRO_INLINE void drawDaylightTheme(G& g, const SceneData& d, const SceneCache& cache) {
-    const uint8_t bgPct = d.backgroundBrightnessPct;
-    const uint8_t clockLum = scaleLuma(54, d.clockBrightnessPct);
-    const uint8_t primaryLum = 46;
-    const uint8_t secondaryLum = 38;
-    const uint8_t quietLum = 25;
-
-    int dx = 0, dy = 0;
-    burnInDrift(d, dx, dy);
-
-    // A light grayscale sky, deliberately simple so the theme feels different
-    // without adding expensive image decoding or full-screen effects.
-    fill(g, 0, 0, SCREEN_W, SCREEN_H, scaleLuma(3, bgPct));
-
-    const uint32_t animMs = cityFrameMs(d);
-    const int cloudA = 330 - (int)((animMs / 4200U) % 420U);
-    const int cloudB = 250 - (int)((animMs / 6100U) % 390U);
-    drawSceneCloud(g, cloudA, 52, 1, scaleLuma(9, bgPct));
-    drawSceneCloud(g, cloudB, 76, 1, scaleLuma(7, bgPct));
-
-    // The daytime scene uses a simple sun rather than the lunar/night treatment.
-    drawPixelDisc(g, 283, 67, 11, scaleLuma(26, bgPct));
-    fill(g, 283, 49, 1, 5, scaleLuma(18, bgPct));
-    fill(g, 283, 80, 1, 5, scaleLuma(18, bgPct));
-    fill(g, 265, 67, 5, 1, scaleLuma(18, bgPct));
-    fill(g, 296, 67, 5, 1, scaleLuma(18, bgPct));
-
-    drawDaylightBird(g, 48, 67, scaleLuma(13, bgPct));
-    drawDaylightBird(g, 87, 47, scaleLuma(11, bgPct));
-    drawDaylightBird(g, 205, 61, scaleLuma(12, bgPct));
-
-    // Two restrained urban layers. No glowing-night look: the silhouettes do
-    // the depth work and windows stay sparse.
-    const int farScroll = (int)(animMs / 3400U);
-    const int nearScroll = (int)(animMs / 1700U);
-    drawSkylineLayer(g, cache.farBuildings, cache.farPeriod, 218, farScroll, 3,
-                     scaleLuma(9, bgPct), scaleLuma(12, bgPct),
-                     animMs / 9000U, true, true);
-    drawSkylineLayer(g, cache.nearBuildings, cache.nearPeriod, 220, nearScroll, 4,
-                     scaleLuma(13, bgPct), scaleLuma(16, bgPct),
-                     animMs / 9000U, true, true);
-
-    static constexpr int HEADER_Y = 18;
-    drawTextFx(g, SAFE_LEFT + dx, HEADER_Y + dy,
-               cache.text.dateText, SCALE_135, secondaryLum, 0);
-    drawWeatherIcon(g, 244 + dx, 15 + dy,
-                    d.weatherValid ? d.condition : CONDITION_UNKNOWN,
-                    primaryLum);
-    drawTemperatureCached(g, SAFE_RIGHT + dx, 18 + dy,
-                          cache.text.tempText, cache.text.tempUnit, primaryLum);
-
-    char unitText[2] = {cache.text.tempUnit, 0};
-    const int tempLeft = (SAFE_RIGHT + dx) -
-        (textWidthFx(cache.text.tempText, SCALE_135) + 9 + textWidthFx(unitText, SCALE_135));
-    if (d.showWeatherText) {
-        drawWeatherDescriptor(g, tempLeft, 30 + dy,
-                              d.weatherValid ? d.condition : CONDITION_UNKNOWN,
-                              quietLum);
-    }
-
-    drawClock(g, dx, dy, d.hour12, d.hour24, d.minute, d.second,
-              d.pm, d.use24Hour, clockLum);
-
-    drawTextFx(g, 46 + dx, 147 + dy, "NEXT", SCALE_115, secondaryLum, 0);
-    drawTextFx(g, 46 + dx, 162 + dy, cache.text.eventText, SCALE_155, primaryLum, 0);
-
-    drawNormalStatus(g, d, dx, dy, quietLum);
-    if (d.showDayBar) drawDayHorizon(g, d.secondsToday);
-}
-
-template <typename G>
 RETRO_INLINE void drawRpgFrame(G& g, int x, int y, int w, int h, uint8_t c) {
     rect(g, x, y, w, h, c, 1);
     // Chunky ornamental corners inspired by classic RPG status windows.
@@ -1327,11 +1238,6 @@ RETRO_INLINE void render(G& g, const SceneData& d, SceneCache& cache) {
         return;
     }
 
-    if (d.timeValid && d.theme == THEME_DAYLIGHT) {
-        drawDaylightTheme(g, d, cache);
-        if (d.wifiResetPercent > 0) drawResetOverlay(g, d.wifiResetPercent);
-        return;
-    }
     if (d.timeValid && d.theme == THEME_RPG) {
         drawRpgTheme(g, d, cache);
         if (d.wifiResetPercent > 0) drawResetOverlay(g, d.wifiResetPercent);
