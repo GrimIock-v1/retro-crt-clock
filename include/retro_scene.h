@@ -57,13 +57,15 @@ enum Condition : uint8_t {
 enum ClockTheme : uint8_t {
     THEME_CITY = 0,
     THEME_DAYLIGHT = 1,
-    THEME_RPG = 2
+    THEME_RPG = 2,
+    THEME_DIGITAL_RAIN = 3
 };
 
 RETRO_INLINE const char* themeName(uint8_t theme) {
     switch (theme) {
         case THEME_DAYLIGHT: return "Daylight";
         case THEME_RPG: return "Retro RPG";
+        case THEME_DIGITAL_RAIN: return "Digital Rain";
         default: return "Rich Cityscape";
     }
 }
@@ -1179,6 +1181,142 @@ RETRO_INLINE void drawRpgTheme(G& g, const SceneData& d, const SceneCache& cache
 }
 
 
+
+RETRO_INLINE char digitalRainChar(uint32_t seed) {
+    static constexpr char glyphs[] = "01ABCDEF+-/:*";
+    return glyphs[mix32(seed) % (sizeof(glyphs) - 1)];
+}
+
+template <typename G>
+RETRO_INLINE void drawDigitalRainBackdrop(G& g, const SceneData& d) {
+    static constexpr int COLUMN_COUNT = 24;
+    static constexpr int COLUMN_SPACING = 14;
+    static constexpr int ROW_SPACING = 9;
+    static constexpr int WRAP_ROWS = 30;
+
+    const uint32_t animMs = cityFrameMs(d);
+    const uint8_t night = nightLevel(d);
+    const uint8_t bgPct = d.backgroundBrightnessPct;
+
+    for (int col = 0; col < COLUMN_COUNT; ++col) {
+        const uint32_t seed = mix32(0x4D415452U ^ (uint32_t)col * 2654435761U);
+        const uint32_t periodMs = 500U + ((seed >> 7) % 1101U);
+        const uint32_t step = periodMs ? animMs / periodMs : 0U;
+        const int headRow = (int)((step + ((seed >> 18) % WRAP_ROWS)) % WRAP_ROWS);
+        const int trail = 4 + (int)((seed >> 28) & 3U);
+        const int x = 4 + col * COLUMN_SPACING;
+
+        for (int k = 0; k < trail; ++k) {
+            int row = headRow - k;
+            while (row < 0) row += WRAP_ROWS;
+            const int y = row * ROW_SPACING - 16;
+            if (y < 7 || y > SCREEN_H - 10) continue;
+
+            const uint32_t cellSeed = mix32(seed ^ (uint32_t)row * 2246822519U ^ step * 3266489917U);
+
+            // Keep trails airy rather than turning the screen into vertical
+            // stripes. The lead glyph always draws; about half the trail cells
+            // are intentionally empty.
+            if (k > 0 && (cellSeed & 3U) < 2U) continue;
+
+            uint8_t baseLum = 10;
+            if (k == 0) baseLum = 43;
+            else if (k == 1) baseLum = 25;
+            else if (k == 2) baseLum = 16;
+
+            // Let code pass behind the hero clock, but make it much quieter
+            // there so the time remains the dominant element.
+            if (x >= 22 && x <= 312 && y >= 78 && y <= 145) {
+                baseLum = (uint8_t)(baseLum > 10 ? 10 : baseLum);
+            }
+
+            const uint8_t lum = dimForNight(scaleLuma(baseLum, bgPct), night, d.nightBrightnessPct);
+            if (!lum) continue;
+
+            drawGlyphFx(g, x, y, digitalRainChar(cellSeed), SCALE_090, lum, 0);
+        }
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawDigitalRainDayBar(G& g, uint32_t secondsToday,
+                                        uint8_t frameLum, uint8_t fillLum) {
+    drawTextFx(g, 13, 218, "DAY", SCALE_090, frameLum, 0);
+
+    static constexpr int x = 47;
+    static constexpr int y = 219;
+    static constexpr int segments = 18;
+    static constexpr int segmentW = 13;
+    static constexpr int gap = 2;
+    static constexpr int h = 6;
+
+    const int filled = clampInt((int)(((uint64_t)secondsToday * segments) / 86400ULL), 0, segments);
+    for (int i = 0; i < segments; ++i) {
+        const int sx = x + i * (segmentW + gap);
+        rect(g, sx, y, segmentW, h, frameLum, 1);
+        if (i < filled) fill(g, sx + 2, y + 2, segmentW - 4, h - 4, fillLum);
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawDigitalRainTheme(G& g, const SceneData& d, const SceneCache& cache) {
+    fill(g, 0, 0, SCREEN_W, SCREEN_H, 0);
+    drawDigitalRainBackdrop(g, d);
+
+    const uint8_t night = nightLevel(d);
+    const uint8_t clockLum = scaleLuma(dimForNight(54, night, d.nightBrightnessPct), d.clockBrightnessPct);
+    const uint8_t primaryLum = dimForNight(47, night, d.nightBrightnessPct);
+    const uint8_t secondaryLum = dimForNight(38, night, d.nightBrightnessPct);
+    const uint8_t frameLum = dimForNight(17, night, d.nightBrightnessPct);
+    const uint8_t quietLum = dimForNight(28, night, d.nightBrightnessPct);
+
+    int dx = 0, dy = 0;
+    burnInDrift(d, dx, dy);
+
+    // Minimal terminal/HUD framing. The rain stays visible around and faintly
+    // behind the information rather than being replaced by solid panels.
+    rect(g, 8, 11, 137, 38, frameLum, 1);
+    rect(g, 234, 11, 94, 41, frameLum, 1);
+    rect(g, 23, 80, 290, 66, frameLum, 1);
+    fill(g, 31, 153, 274, 44, 0);
+    rect(g, 29, 151, 278, 48, frameLum, 1);
+
+    drawTextFx(g, 13 + dx, 18 + dy, cache.text.dateText, SCALE_135, secondaryLum, 0);
+
+    drawWeatherIcon(g, 241 + dx, 15 + dy,
+                    d.weatherValid ? d.condition : CONDITION_UNKNOWN,
+                    primaryLum);
+    drawTemperatureCached(g, 322 + dx, 18 + dy,
+                          cache.text.tempText, cache.text.tempUnit, primaryLum);
+
+    char unitText[2] = {cache.text.tempUnit, 0};
+    const int tempLeft = (322 + dx) -
+        (textWidthFx(cache.text.tempText, SCALE_135) + 9 + textWidthFx(unitText, SCALE_135));
+    if (d.showWeatherText) {
+        drawWeatherDescriptor(g, tempLeft, 31 + dy,
+                              d.weatherValid ? d.condition : CONDITION_UNKNOWN,
+                              quietLum);
+    }
+    if (d.weatherValid && !d.weatherFresh) {
+        drawTextFx(g, 316 + dx, 42 + dy, "*", SCALE_090, quietLum, 0);
+    }
+
+    drawClock(g, dx, dy, d.hour12, d.hour24, d.minute, d.second,
+              d.pm, d.use24Hour, clockLum);
+
+    drawTextFx(g, 39 + dx, 157 + dy, "NEXT", SCALE_100, secondaryLum, 0);
+    drawTextFx(g, 39 + dx, 174 + dy, cache.text.eventText, SCALE_155, primaryLum, 0);
+    if (d.calendarValid && !d.calendarFresh) {
+        const int eventW = textWidthFx(cache.text.eventText, SCALE_155);
+        int markerX = 39 + dx + eventW + 3;
+        if (markerX > 295) markerX = 295;
+        drawTextFx(g, markerX, 173 + dy, "*", SCALE_090, quietLum, 0);
+    }
+
+    drawNormalStatus(g, d, dx, dy, quietLum);
+    if (d.showDayBar) drawDigitalRainDayBar(g, d.secondsToday, frameLum, primaryLum);
+}
+
 template <typename G>
 RETRO_INLINE void render(G& g, const SceneData& d, SceneCache& cache) {
     prepareSceneCache(cache, d);
@@ -1196,6 +1334,11 @@ RETRO_INLINE void render(G& g, const SceneData& d, SceneCache& cache) {
     }
     if (d.timeValid && d.theme == THEME_RPG) {
         drawRpgTheme(g, d, cache);
+        if (d.wifiResetPercent > 0) drawResetOverlay(g, d.wifiResetPercent);
+        return;
+    }
+    if (d.timeValid && d.theme == THEME_DIGITAL_RAIN) {
+        drawDigitalRainTheme(g, d, cache);
         if (d.wifiResetPercent > 0) drawResetOverlay(g, d.wifiResetPercent);
         return;
     }
