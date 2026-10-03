@@ -1,5 +1,16 @@
 # V3.11.0 - Browser OTA firmware updates
 
+## V3.12.4 - Digital Rain theme
+
+- Added a fourth selectable clock design: Digital Rain.
+- Added 24 deterministic falling-code streams with independent 500-1600 ms step periods, sparse trails, bright lead glyphs, and dim trailing glyphs.
+- Kept the hero clock visually dominant by reducing rain brightness through the central time region.
+- Added terminal/HUD-style framing for date, weather, clock, next meeting, and a segmented day-progress meter.
+- Reused the existing background-animation speed control for rain speed and renamed its web label from City animation to Background animation.
+- Added a native simulator preview and persisted theme-ID coverage for Digital Rain.
+- No extra framebuffer, image decoding, or dynamic allocation was added.
+
+
 ## V3.12.3 - WiFi isolation diagnostic
 
 - Added a 30-second WiFi-off video isolation test.
