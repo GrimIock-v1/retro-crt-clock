@@ -36,7 +36,7 @@ static constexpr uint32_t HEALTH_LOG_INTERVAL_MS = 5UL * 60UL * 1000UL;
 
 static constexpr int BRIDGE_API_VERSION = 3;
 static constexpr int SETTINGS_VERSION = 2;
-static constexpr const char* FIRMWARE_VERSION = "3.12.4";
+static constexpr const char* FIRMWARE_VERSION = "3.12.5";
 static constexpr const char* DEFAULT_BRIDGE_URL =
     "http://crt-clock-bridge.ultramagnus.ca/status";
 
@@ -169,6 +169,7 @@ static void clampSettings(ClockSettings& cfg) {
     cfg.backgroundBrightness = (uint8_t)clampValue(cfg.backgroundBrightness, 0, 100);
     cfg.citySpeed = (uint8_t)clampValue(cfg.citySpeed, 0, 3);
     cfg.theme = (uint8_t)clampValue(cfg.theme, retro::THEME_CITY, retro::THEME_DIGITAL_RAIN);
+    if (cfg.theme == retro::THEME_DAYLIGHT_RESERVED) cfg.theme = retro::THEME_CITY;
     if (!cfg.bridgeUrl[0]) strlcpy(cfg.bridgeUrl, DEFAULT_BRIDGE_URL, sizeof(cfg.bridgeUrl));
     if (!cfg.timezoneRule[0]) strlcpy(cfg.timezoneRule, "PST8PDT,M3.2.0,M11.1.0", sizeof(cfg.timezoneRule));
 }
