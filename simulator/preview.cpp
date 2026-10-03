@@ -116,6 +116,16 @@ int main() {
     snprintf(day.nextEventTime, sizeof(day.nextEventTime), "2:15 PM");
     writeScene(g, cache, day, "preview-day.ppm");
 
+    auto rpgTheme = evening;
+    rpgTheme.theme = retro::THEME_RPG;
+    rpgTheme.frameMs = 118000;
+    writeScene(g, cache, rpgTheme, "preview-theme-rpg.ppm");
+
+    auto digitalRainTheme = evening;
+    digitalRainTheme.theme = retro::THEME_DIGITAL_RAIN;
+    digitalRainTheme.frameMs = 118000;
+    writeScene(g, cache, digitalRainTheme, "preview-theme-digital-rain.ppm");
+
     auto stale = evening;
     stale.weatherFresh = false;
     stale.calendarFresh = false;
