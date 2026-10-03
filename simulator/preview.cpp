@@ -126,6 +126,11 @@ int main() {
     rpgTheme.frameMs = 118000;
     writeScene(g, cache, rpgTheme, "preview-theme-rpg.ppm");
 
+    auto digitalRainTheme = evening;
+    digitalRainTheme.theme = retro::THEME_DIGITAL_RAIN;
+    digitalRainTheme.frameMs = 118000;
+    writeScene(g, cache, digitalRainTheme, "preview-theme-digital-rain.ppm");
+
     auto stale = evening;
     stale.weatherFresh = false;
     stale.calendarFresh = false;
