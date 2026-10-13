@@ -1114,7 +1114,7 @@ RETRO_INLINE void drawDigitalRainBackdrop(G& g, const SceneData& d) {
         const uint32_t periodMs = 500U + ((seed >> 7) % 1101U);
         const uint32_t step = periodMs ? animMs / periodMs : 0U;
         const int headRow = (int)((step + ((seed >> 18) % WRAP_ROWS)) % WRAP_ROWS);
-        const int trail = 4 + (int)((seed >> 28) & 3U);
+        const int trail = 10 + (int)((seed >> 28) & 7U);
         const int x = 4 + col * COLUMN_SPACING;
 
         for (int k = 0; k < trail; ++k) {
@@ -1125,20 +1125,25 @@ RETRO_INLINE void drawDigitalRainBackdrop(G& g, const SceneData& d) {
 
             const uint32_t cellSeed = mix32(seed ^ (uint32_t)row * 2246822519U ^ step * 3266489917U);
 
-            // Keep trails airy rather than turning the screen into vertical
-            // stripes. The lead glyph always draws; about half the trail cells
-            // are intentionally empty.
-            if (k > 0 && (cellSeed & 3U) < 2U) continue;
+            // Keep the streams continuous enough to read as cascading code
+            // while retaining a few gaps so they do not become solid stripes.
+            // The lead glyph always draws; only about one trail cell in eight
+            // is skipped.
+            if (k > 0 && (cellSeed & 7U) == 0U) continue;
 
-            uint8_t baseLum = 10;
-            if (k == 0) baseLum = 43;
-            else if (k == 1) baseLum = 25;
-            else if (k == 2) baseLum = 16;
+            uint8_t baseLum = 12;
+            if (k == 0) baseLum = 45;
+            else if (k == 1) baseLum = 35;
+            else if (k == 2) baseLum = 30;
+            else if (k <= 5) baseLum = 24;
+            else if (k <= 9) baseLum = 18;
+            else if (k <= 13) baseLum = 15;
 
-            // Let code pass behind the hero clock, but make it much quieter
-            // there so the time remains the dominant element.
-            if (x >= 22 && x <= 312 && y >= 78 && y <= 145) {
-                baseLum = (uint8_t)(baseLum > 10 ? 10 : baseLum);
+            // Keep the rain clearly visible behind the clock instead of
+            // suppressing it almost completely. The hero time still wins by
+            // limiting only the brightest code through this region.
+            if (x >= 22 && x <= 312 && y >= 78 && y <= 145 && baseLum > 18) {
+                baseLum = 18;
             }
 
             const uint8_t lum = dimForNight(scaleLuma(baseLum, bgPct), night, d.nightBrightnessPct);
@@ -1184,13 +1189,8 @@ RETRO_INLINE void drawDigitalRainTheme(G& g, const SceneData& d, const SceneCach
     int dx = 0, dy = 0;
     burnInDrift(d, dx, dy);
 
-    // Minimal terminal/HUD framing. The rain stays visible around and faintly
-    // behind the information rather than being replaced by solid panels.
-    rect(g, 8, 11, 137, 38, frameLum, 1);
-    rect(g, 234, 11, 94, 41, frameLum, 1);
-    rect(g, 23, 80, 290, 66, frameLum, 1);
-    fill(g, 31, 153, 274, 44, 0);
-    rect(g, 29, 151, 278, 48, frameLum, 1);
+    // Keep the clock information floating directly over the rain. No HUD
+    // boxes or opaque panels: the background is the visual identity here.
 
     drawTextFx(g, 13 + dx, 18 + dy, cache.text.dateText, SCALE_135, secondaryLum, 0);
 
