@@ -1,5 +1,15 @@
 # V3.11.0 - Browser OTA firmware updates
 
+## V3.12.6 - Digital Rain refinement
+
+- Removed the HUD boxes and opaque panel behind the clock information so date, weather, time, and next event float directly over the rain.
+- Increased rain trails from roughly 4-7 glyphs to 10-17 glyphs.
+- Increased trail density by skipping only about one in eight trailing cells.
+- Brightened the trailing glyphs substantially while keeping the lead glyph brightest.
+- Relaxed clock-area rain suppression so code remains visible behind the hero time without overpowering it.
+- Left the segmented day-progress meter intact.
+
+
 ## V3.12.5 - Remove Daylight theme
 
 - Removed the Daylight renderer and its web selector option because it was too visually similar to Rich Cityscape.
