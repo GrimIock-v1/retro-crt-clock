@@ -21,3 +21,18 @@ are also present in this branch.
 4. If sync is worse or the image rolls/tears, return to `feature/themes`.
 
 No changes from this branch should be merged until the real CRT A/B is clearly better.
+
+
+## Pass 2: line-to-line chroma phase
+
+The first 227.5-clock build produced a much cleaner monochrome image on the Sony
+but the TV stopped decoding Moonlit Cabin in color. That result exposed a missing
+part of the NTSC relationship: a 227.5-color-clock line advances the subcarrier
+by 180 degrees on each scanline.
+
+Pass 2 therefore:
+- flips the color-burst phase by 180 degrees on alternate lines,
+- uses an equally phase-rotated active-video palette on those lines,
+- rebuilds the alternate palette after the 60% soft-chroma palette is installed.
+
+The firmware identifies this pass as `3.13.4-2275p2`.
