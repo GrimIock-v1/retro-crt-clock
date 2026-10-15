@@ -484,7 +484,6 @@ int _line_count;
 int _line_width;
 int _samples_per_cc = 4; // 3 or 4
 const uint32_t* _palette;
-DRAM_ATTR uint32_t _ntsc_palette_phase180[256];
 volatile bool _ntsc_color_enabled = true;
 
 float _sample_rate;
@@ -718,20 +717,8 @@ void video_init(VideoStandard standard)
 // cc == 4 gives 912 samples per line, 4 samples per cc, 2 pixels per cc
 
 #if SUPPORT_NTSC
-    void ntsc_rebuild_phase_palette() {
-        // A standards-correct 227.5-color-clock NTSC line advances the
-        // subcarrier by 180 degrees from one scanline to the next. Build a
-        // second palette with each 4-sample color waveform rotated by two
-        // samples (half a color cycle) so active chroma follows that phase.
-        for (int i = 0; i < 256; ++i) {
-            const uint32_t w = _palette[i];
-            _ntsc_palette_phase180[i] = (w << 16) | (w >> 16);
-        }
-    }
-
     void ntsc_init() {
         _palette = ntsc_palette();
-        ntsc_rebuild_phase_palette();
         _sample_rate = 315.0/88 * _samples_per_cc;   // DAC rate
         _line_width = NTSC_SAMPLES_PER_SCANLINE;
         _line_count = NTSC_LINES;
@@ -744,7 +731,7 @@ void video_init(VideoStandard standard)
     void IRAM_ATTR blit_ntsc(uint8_t* src, uint16_t* dst)
     {
         uint32_t* d = (uint32_t*)dst;
-        const uint32_t* p = (_line_counter & 1) ? _ntsc_palette_phase180 : _palette;
+        const uint32_t* p = _palette;
         uint32_t c;
         int i;
 
@@ -769,25 +756,18 @@ void video_init(VideoStandard standard)
     {
         int i,phase;
         switch (_samples_per_cc) {
-            case 4: {
-                // 4 samples per color clock. With a 227.5-clock scanline the
-                // burst phase must reverse on alternate lines. _line_counter
-                // has already advanced for the current ISR, and the active
-                // palette uses the same parity, so burst-to-chroma hue stays
-                // constant while the subcarrier remains continuous line-to-line.
-                const bool phase180 = (_line_counter & 1) != 0;
+            case 4:
+                // At 910 samples per scanline the continuous DAC clock already
+                // advances the absolute NTSC subcarrier by half a cycle on the
+                // next line. Keep burst and active-video waveforms at the same
+                // relative sample phase inside each line.
                 for (i = _hsync; i < _hsync + (4*10); i += 4) {
                     #if COLORBURST
                         if (_ntsc_color_enabled) {
                             line[i+1] = BLANKING_LEVEL;
+                            line[i+0] = BLANKING_LEVEL + BLANKING_LEVEL/2;
                             line[i+3] = BLANKING_LEVEL;
-                            if (!phase180) {
-                                line[i+0] = BLANKING_LEVEL + BLANKING_LEVEL/2;
-                                line[i+2] = BLANKING_LEVEL - BLANKING_LEVEL/2;
-                            } else {
-                                line[i+0] = BLANKING_LEVEL - BLANKING_LEVEL/2;
-                                line[i+2] = BLANKING_LEVEL + BLANKING_LEVEL/2;
-                            }
+                            line[i+2] = BLANKING_LEVEL - BLANKING_LEVEL/2;
                         } else {
                             line[i+1] = BLANKING_LEVEL;
                             line[i+0] = BLANKING_LEVEL;
@@ -802,7 +782,6 @@ void video_init(VideoStandard standard)
                     #endif
                 }
                 break;
-            }
             case 3:
                 // 3 samples per color clock
                 phase = 0.866025*BLANKING_LEVEL/2;
