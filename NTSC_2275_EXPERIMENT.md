@@ -55,3 +55,22 @@ The CRT should therefore treat grayscale themes as real monochrome composite,
 even with its CHROMA control left at the normal position.
 
 Firmware identifies this pass as `3.13.4-2275p3`.
+
+
+## Pass 4: natural line phase + VBlank color switching
+
+The p3 result confirmed true-monochrome output is the right solution for the
+grayscale themes. Moonlit Cabin still showed distorted/incomplete color and a
+bright flash when switching into the color theme.
+
+Pass 4:
+- keeps 910 samples / 227.5 color clocks per line,
+- removes the explicit software 180-degree palette/burst rotation from p2/p3,
+  relying on the continuous DAC clock plus half-cycle-short scanline to produce
+  the natural NTSC line-to-line phase advance,
+- keeps colorburst disabled for grayscale themes,
+- keeps colorburst enabled for Moonlit Cabin,
+- switches colorburst mode only during VBlank at the framebuffer handoff so
+  the CRT never changes decoder mode mid-active-frame.
+
+Firmware identifies this pass as `3.13.4-2275p4`.
