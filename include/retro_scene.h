@@ -106,12 +106,14 @@ struct SceneData {
     uint16_t driftIntervalMinutes = 30; // 1..120
     uint8_t nightBrightnessPct = 75;  // 10..100
     uint8_t clockBrightnessPct = 100; // 25..100
-    uint8_t backgroundBrightnessPct = 100; // 0..100
+    uint8_t backgroundBrightnessPct = 100; // Cityscape brightness, 0..100
+    uint8_t rainBrightnessPct = 100;       // Digital Rain brightness, 0..100
     bool use24Hour = false;
     bool fahrenheit = false;
     bool showWeatherText = true;
     bool showDayBar = true;
     uint8_t citySpeed = 2; // 0=off, 1=slow, 2=normal, 3=fast
+    uint8_t rainSpeed = 2; // 0=off, 1=slow, 2=normal, 3=fast
     uint8_t theme = THEME_CITY;
 
     uint32_t frameMs = 0;
@@ -815,13 +817,21 @@ RETRO_INLINE void drawStars(G& g, uint32_t frameMs, uint8_t bgPct, uint8_t night
     }
 }
 
-RETRO_INLINE uint32_t cityFrameMs(const SceneData& d) {
-    switch (d.citySpeed) {
+RETRO_INLINE uint32_t animationFrameMs(uint32_t frameMs, uint8_t speed) {
+    switch (speed) {
         case 0: return 0;
-        case 1: return d.frameMs / 2U;
-        case 3: return d.frameMs * 2U;
-        default: return d.frameMs;
+        case 1: return frameMs / 2U;
+        case 3: return frameMs * 2U;
+        default: return frameMs;
     }
+}
+
+RETRO_INLINE uint32_t cityFrameMs(const SceneData& d) {
+    return animationFrameMs(d.frameMs, d.citySpeed);
+}
+
+RETRO_INLINE uint32_t rainFrameMs(const SceneData& d) {
+    return animationFrameMs(d.frameMs, d.rainSpeed);
 }
 
 template <typename G>
@@ -1105,9 +1115,9 @@ RETRO_INLINE void drawDigitalRainBackdrop(G& g, const SceneData& d) {
     static constexpr int ROW_SPACING = 9;
     static constexpr int WRAP_ROWS = 30;
 
-    const uint32_t animMs = cityFrameMs(d);
+    const uint32_t animMs = rainFrameMs(d);
     const uint8_t night = nightLevel(d);
-    const uint8_t bgPct = d.backgroundBrightnessPct;
+    const uint8_t bgPct = d.rainBrightnessPct;
 
     for (int col = 0; col < COLUMN_COUNT; ++col) {
         const uint32_t seed = mix32(0x4D415452U ^ (uint32_t)col * 2654435761U);
