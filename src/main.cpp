@@ -31,12 +31,14 @@ static constexpr uint32_t BRIDGE_READ_TIMEOUT_MS = 5000;
 static constexpr uint32_t BRIDGE_RETRY_DELAY_MS = 250;
 static constexpr uint32_t VIDEO_ISOLATION_TEST_MS = 30000;
 static constexpr uint32_t VIDEO_ISOLATION_STEP_MS = 500;
+static constexpr uint32_t VIDEO_PHASE_STEP_MS = 4000;
+static constexpr uint32_t VIDEO_PHASE_SWEEP_MS = 16000;
 static constexpr uint32_t RENDER_DIAG_CACHE_INTERVAL_MS = 5000;
 static constexpr uint32_t HEALTH_LOG_INTERVAL_MS = 5UL * 60UL * 1000UL;
 
 static constexpr int BRIDGE_API_VERSION = 3;
 static constexpr int SETTINGS_VERSION = 4;
-static constexpr const char* FIRMWARE_VERSION = "3.13.4-2275p6";
+static constexpr const char* FIRMWARE_VERSION = "3.13.4-2275p7";
 static constexpr const char* DEFAULT_BRIDGE_URL =
     "http://crt-clock-bridge.ultramagnus.ca/status";
 
@@ -96,7 +98,8 @@ enum VideoIsolationMode : uint8_t {
     VIDEO_TEST_RENDER_ONLY = 2,
     VIDEO_TEST_SWAP_ONLY = 3,
     VIDEO_TEST_WIFI_OFF = 4,
-    VIDEO_TEST_PALETTE = 5
+    VIDEO_TEST_PALETTE = 5,
+    VIDEO_TEST_PHASE_SWEEP = 6
 };
 
 VideoIsolationMode videoTestMode = VIDEO_TEST_NONE;
@@ -368,6 +371,7 @@ static const char* videoTestModeName(VideoIsolationMode mode) {
         case VIDEO_TEST_SWAP_ONLY: return "SWAP_ONLY";
         case VIDEO_TEST_WIFI_OFF: return "WIFI_OFF";
         case VIDEO_TEST_PALETTE: return "PALETTE";
+        case VIDEO_TEST_PHASE_SWEEP: return "PHASE_SWEEP";
         default: return "NONE";
     }
 }
@@ -711,6 +715,9 @@ static void handleApiVideoTest() {
     } else if (mode == "palette") {
         queueVideoIsolationTest(VIDEO_TEST_PALETTE,
                                 "NTSC palette test queued for 30 seconds. Photograph the labeled 0-F swatches.");
+    } else if (mode == "phase") {
+        queueVideoIsolationTest(VIDEO_TEST_PHASE_SWEEP,
+                                "NTSC burst phase sweep queued. Record the 0/90/180/270 degree palette screens.");
     } else {
         sendApiMessage(false, "Unknown video test mode.", 400);
     }
@@ -1128,6 +1135,7 @@ static void updateClockFields() {
 }
 
 bool preparedFrameWantsColor = false;
+uint8_t preparedFrameBurstPhase = 0;
 
 static void drawSceneToBackbuffer(const retro::SceneData& frameScene) {
     // Record the intended decoder mode with the prepared framebuffer. Do not
@@ -1135,6 +1143,7 @@ static void drawSceneToBackbuffer(const retro::SceneData& frameScene) {
     preparedFrameWantsColor =
         !frameScene.diagnosticsMode &&
         frameScene.theme == retro::THEME_MOONLIT_CABIN;
+    preparedFrameBurstPhase = 0;
 
     graphics.setHue(0);
     graphics.begin(0);
@@ -1150,6 +1159,7 @@ static void presentPreparedBackbuffer() {
 
     if (videoHardwareInitialized) {
         retroSetNtscColorEnabled(preparedFrameWantsColor);
+        retroSetNtscBurstPhase(preparedFrameBurstPhase);
     }
 
     graphics.end();
@@ -1179,13 +1189,15 @@ static void captureVideoTestScene() {
     videoTestScene = scene;
 }
 
-static void prepareNtscPaletteTestFrame() {
+static void prepareNtscPaletteTestFrame(uint8_t phaseQuarter = 0) {
     graphics.setHue(0);
     graphics.begin(0);
     backend.fillRect(0, 0, retro::SCREEN_W, retro::SCREEN_H, 0);
 
     retro::drawTextFx(backend, 16, 10, "NTSC PALETTE 0-F", retro::SCALE_115, 48, 0);
-    retro::drawTextFx(backend, 16, 24, "PHOTO THIS SCREEN", retro::SCALE_090, 28, 0);
+    char phaseText[32];
+    snprintf(phaseText, sizeof(phaseText), "BURST PHASE %u DEG", (unsigned)(phaseQuarter & 3U) * 90U);
+    retro::drawTextFx(backend, 16, 24, phaseText, retro::SCALE_090, 28, 0);
 
     static const char labels[] = "0123456789ABCDEF";
     for (int hue = 0; hue < 16; ++hue) {
@@ -1208,6 +1220,7 @@ static void prepareNtscPaletteTestFrame() {
     retro::drawTextFx(backend, 16, 220, "LEFT=MED  RIGHT=BRIGHT", retro::SCALE_090, 28, 0);
 
     preparedFrameWantsColor = true;
+    preparedFrameBurstPhase = phaseQuarter & 3U;
     presentPreparedBackbuffer();
 }
 
@@ -1235,10 +1248,14 @@ static void beginVideoIsolationTest(VideoIsolationMode mode) {
         prepareSwapOnlyBuffers();
     } else if (mode == VIDEO_TEST_PALETTE) {
         Serial.println("VIDEO ISOLATION: showing NTSC palette calibration for 30 seconds...");
-        prepareNtscPaletteTestFrame();
+        prepareNtscPaletteTestFrame(0);
+    } else if (mode == VIDEO_TEST_PHASE_SWEEP) {
+        Serial.println("VIDEO ISOLATION: sweeping NTSC burst phase 0/90/180/270 degrees...");
+        prepareNtscPaletteTestFrame(0);
     }
 
-    videoTestUntil = millis() + VIDEO_ISOLATION_TEST_MS;
+    videoTestUntil = millis() +
+        (mode == VIDEO_TEST_PHASE_SWEEP ? VIDEO_PHASE_SWEEP_MS : VIDEO_ISOLATION_TEST_MS);
 
     if (mode == VIDEO_TEST_WIFI_OFF) {
         // The API response that queued this test has already been generated.
@@ -1292,6 +1309,16 @@ static void serviceVideoIsolationTest(uint32_t now) {
 
     if (!videoTestActive()) {
         finishVideoIsolationTest();
+        return;
+    }
+
+    if (videoTestMode == VIDEO_TEST_PHASE_SWEEP) {
+        if (now - videoTestLastStepAt < VIDEO_PHASE_STEP_MS) return;
+        videoTestLastStepAt = now;
+        ++videoTestSteps;
+        if (videoTestSteps <= 3) {
+            prepareNtscPaletteTestFrame((uint8_t)videoTestSteps);
+        }
         return;
     }
 
