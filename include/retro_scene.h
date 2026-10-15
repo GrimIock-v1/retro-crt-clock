@@ -137,6 +137,7 @@ struct SceneData {
     uint32_t diagHttpLastMs = 0;
     uint32_t diagHttpMaxMs = 0;
     int16_t diagRssi = -127;
+    char diagIp[16] = "--";
     bool diagWifiStressActive = false;
 };
 
@@ -952,8 +953,9 @@ RETRO_INLINE void drawDiagnostics(G& g, const SceneData& d) {
              (unsigned long)(d.diagLargestHeap / 1024U));
     drawTextFx(g, 18, 50, line, SCALE_090, 32, 0);
 
-    snprintf(line, sizeof(line), "WIFI %s RSSI %d",
-             d.wifiConnected ? "OK" : "NO", (int)d.diagRssi);
+    snprintf(line, sizeof(line), "WIFI %s %dDB IP %s",
+             d.wifiConnected ? "OK" : "NO", (int)d.diagRssi,
+             d.wifiConnected ? d.diagIp : "--");
     drawTextFx(g, 18, 64, line, SCALE_090, 32, 0);
 
     snprintf(line, sizeof(line), "TIME %s BRDG %s",
