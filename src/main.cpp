@@ -36,7 +36,7 @@ static constexpr uint32_t HEALTH_LOG_INTERVAL_MS = 5UL * 60UL * 1000UL;
 
 static constexpr int BRIDGE_API_VERSION = 3;
 static constexpr int SETTINGS_VERSION = 4;
-static constexpr const char* FIRMWARE_VERSION = "3.13.4-2275p3";
+static constexpr const char* FIRMWARE_VERSION = "3.13.4-2275p4";
 static constexpr const char* DEFAULT_BRIDGE_URL =
     "http://crt-clock-bridge.ultramagnus.ca/status";
 
@@ -1122,15 +1122,14 @@ static void updateClockFields() {
     scene.secondsToday = (uint32_t)(hour24 * 3600 + t.tm_min * 60 + t.tm_sec);
 }
 
+bool preparedFrameWantsColor = false;
+
 static void drawSceneToBackbuffer(const retro::SceneData& frameScene) {
-    // Grayscale themes are sent as true monochrome composite: no colorburst
-    // means the CRT does not attempt Y/C separation and therefore cannot
-    // invent cyan/yellow fringe from sharp luma edges. Moonlit Cabin keeps
-    // colorburst enabled so its authored palette remains in color.
-    const bool wantsColor =
+    // Record the intended decoder mode with the prepared framebuffer. Do not
+    // change colorburst here: rendering can happen during active scanout.
+    preparedFrameWantsColor =
         !frameScene.diagnosticsMode &&
         frameScene.theme == retro::THEME_MOONLIT_CABIN;
-    retroSetNtscColorEnabled(wantsColor);
 
     graphics.setHue(0);
     graphics.begin(0);
@@ -1140,9 +1139,13 @@ static void drawSceneToBackbuffer(const retro::SceneData& frameScene) {
 static void presentPreparedBackbuffer() {
     // The scanout ISR dereferences the current framebuffer once per active
     // scanline. Only hand off at the START of a fresh NTSC blanking interval.
-    // If synchronization ever times out, drop this presentation rather than
-    // risk repointing the framebuffer during active video.
+    // Colorburst mode changes at the same boundary so the CRT never sees a
+    // mid-frame transition between monochrome and color decoding.
     if (videoHardwareInitialized && !waitForFreshVideoBlanking()) return;
+
+    if (videoHardwareInitialized) {
+        retroSetNtscColorEnabled(preparedFrameWantsColor);
+    }
 
     graphics.end();
     if (videoHardwareInitialized) {
