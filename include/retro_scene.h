@@ -1257,28 +1257,24 @@ RETRO_INLINE uint8_t cabinLuma(const SceneData& d, uint8_t base) {
                        nightLevel(d), d.nightBrightnessPct);
 }
 
-template <typename G>
-RETRO_INLINE void drawCabinMountain(G& g, int peakX, int peakY, int baseY, int halfWidth,
-                                    uint8_t bodyHue, uint8_t bodyLum,
-                                    uint8_t snowHue, uint8_t snowLum) {
-    g.setHue(bodyHue);
-    const int height = baseY - peakY;
-    for (int y = peakY; y < baseY; y += 2) {
-        const int dy = y - peakY;
-        int half = (dy * halfWidth) / (height > 0 ? height : 1);
-        half = (half / 3) * 3;
-        if (half < 1) half = 1;
-        fill(g, peakX - half, y, half * 2 + 1, 2, bodyLum);
-    }
+template <typename G, size_t N>
+RETRO_INLINE void drawCabinRidge(G& g,
+                                 const int16_t (&xs)[N],
+                                 const int16_t (&ys)[N],
+                                 int baseY, uint8_t hue, uint8_t lum) {
+    g.setHue(hue);
+    for (size_t i = 0; i + 1 < N; ++i) {
+        const int x0 = xs[i];
+        const int x1 = xs[i + 1];
+        const int y0 = ys[i];
+        const int y1 = ys[i + 1];
+        const int span = x1 - x0;
+        if (span <= 0) continue;
 
-    g.setHue(snowHue);
-    const int capH = height / 4;
-    for (int y = peakY + 2; y < peakY + capH; y += 3) {
-        const int dy = y - peakY;
-        const int bodyHalf = (dy * halfWidth) / (height > 0 ? height : 1);
-        int snowHalf = bodyHalf - dy / 6;
-        if (snowHalf < 1) snowHalf = 1;
-        fill(g, peakX - snowHalf, y, snowHalf * 2 + 1, 2, snowLum);
+        for (int x = x0; x < x1; x += 2) {
+            const int y = y0 + ((y1 - y0) * (x - x0)) / span;
+            fill(g, x, y, 2, baseY - y, lum);
+        }
     }
 }
 
@@ -1286,14 +1282,24 @@ template <typename G>
 RETRO_INLINE void drawCabinPine(G& g, int x, int baseY, int height, uint8_t lum) {
     g.setHue(CABIN_HUE_TREE);
     const int top = baseY - height;
-    fill(g, x, top + height / 3, 2, height * 2 / 3, lum > 5 ? lum - 5 : lum);
+    const uint8_t trunkLum = lum > 5 ? lum - 4 : lum;
 
-    const int layers = 5;
-    for (int i = 0; i < layers; ++i) {
-        const int y = top + 4 + i * ((height - 6) / layers);
-        const int half = 3 + i * (height / 18 + 2);
-        fill(g, x - half, y, half * 2 + 1, 2, lum);
-        if (i > 0) fill(g, x - half + 3, y - 3, (half - 2) * 2, 2, lum);
+    fill(g, x - 1, top + height / 3, 3, height * 2 / 3, trunkLum);
+
+    const int crownH = height - 6;
+    for (int row = 0; row < 5; ++row) {
+        const int y = top + 4 + row * (crownH / 5);
+        const int half = 4 + row * (height / 18 + 2);
+
+        // A stepped, filled branch silhouette reads much more like pixel art
+        // on the CRT than the old thin horizontal-line tree.
+        fill(g, x - half, y, half * 2 + 1, 3, lum);
+        if (row > 0) {
+            fill(g, x - half + 3, y - 4, (half - 3) * 2 + 1, 3, lum);
+        }
+        if (row > 1) {
+            fill(g, x - half + 6, y - 7, (half - 6) * 2 + 1, 2, lum);
+        }
     }
 }
 
@@ -1301,38 +1307,36 @@ template <typename G>
 RETRO_INLINE void drawCabinStars(G& g, const SceneData& d) {
     static const uint16_t xs[] = {
         18,31,46,82,102,121,143,164,186,205,225,249,271,294,317,
-        26,57,92,133,174,214,258,304,74,151,235,287,322
+        26,57,92,133,174,214,258,304,74,151,235,287,322,112,278,198
     };
     static const uint8_t ys[] = {
         48,72,36,54,27,67,43,22,58,34,75,45,25,62,39,
-        91,84,95,78,89,70,88,80,16,96,17,101,92
+        91,84,95,78,89,70,88,80,16,96,17,101,92,48,53,18
     };
     static constexpr int COUNT = sizeof(xs) / sizeof(xs[0]);
 
     for (int i = 0; i < COUNT; ++i) {
         const uint32_t seed = mix32(0x53544152U ^ (uint32_t)i * 2654435761U);
-        uint8_t base = 23;
+        uint8_t base = 21;
 
         if (d.cabinTwinkle == 1) {
             const uint32_t bucket = (d.frameMs + (seed & 2047U)) / 2400U;
-            base = (mix32(seed ^ bucket) & 1U) ? 25 : 20;
+            base = (mix32(seed ^ bucket) & 1U) ? 25 : 18;
         } else if (d.cabinTwinkle >= 2) {
             const uint32_t bucket = (d.frameMs + (seed & 2047U)) / 1100U;
-            base = (uint8_t)(18 + ((mix32(seed ^ bucket) >> 5) & 11U));
+            base = (uint8_t)(17 + ((mix32(seed ^ bucket) >> 5) & 12U));
         }
 
         const uint8_t lum = cabinLuma(d, base);
-        g.setHue((i % 6 == 0) ? CABIN_HUE_ICE : CABIN_HUE_NEUTRAL);
+        g.setHue((i % 7 == 0) ? CABIN_HUE_ICE : CABIN_HUE_NEUTRAL);
         pixel(g, xs[i], ys[i], lum);
 
-        if (d.cabinTwinkle >= 2 && (i % 7 == 0)) {
+        if (d.cabinTwinkle >= 2 && (i % 8 == 0)) {
             const uint32_t bucket = (d.frameMs + (seed & 1023U)) / 1700U;
             if ((mix32(seed ^ bucket) & 3U) == 0U) {
-                const uint8_t sparkle = cabinLuma(d, 34);
-                pixel(g, xs[i] - 2, ys[i], sparkle);
-                pixel(g, xs[i] + 2, ys[i], sparkle);
-                pixel(g, xs[i], ys[i] - 2, sparkle);
-                pixel(g, xs[i], ys[i] + 2, sparkle);
+                const uint8_t sparkle = cabinLuma(d, 33);
+                fill(g, xs[i] - 2, ys[i], 5, 1, sparkle);
+                fill(g, xs[i], ys[i] - 2, 1, 5, sparkle);
             }
         }
     }
@@ -1340,11 +1344,13 @@ RETRO_INLINE void drawCabinStars(G& g, const SceneData& d) {
 
 template <typename G>
 RETRO_INLINE void drawCabinMoon(G& g, const MoonCache& moon, const SceneData& d) {
-    static constexpr int cx = 66;
-    static constexpr int cy = 62;
+    static constexpr int cx = 65;
+    static constexpr int cy = 65;
 
-    g.setHue(CABIN_HUE_SKY);
-    const uint8_t darkLum = cabinLuma(d, 7);
+    // Draw the unlit portion almost black so the moon reads as a phase rather
+    // than a yellow disc sitting on a blue patch.
+    g.setHue(CABIN_HUE_NEUTRAL);
+    const uint8_t darkLum = cabinLuma(d, 2);
     for (int i = 0; i < MOON_RADIUS * 2 + 1; ++i) {
         if (moon.diskWidth[i] > 0) {
             const int dy = i - MOON_RADIUS;
@@ -1353,7 +1359,7 @@ RETRO_INLINE void drawCabinMoon(G& g, const MoonCache& moon, const SceneData& d)
     }
 
     g.setHue(CABIN_HUE_WARM);
-    const uint8_t litLum = cabinLuma(d, 43);
+    const uint8_t litLum = cabinLuma(d, 44);
     for (int i = 0; i < MOON_RADIUS * 2 + 1; ++i) {
         if (moon.litWidth[i] > 0) {
             const int dy = i - MOON_RADIUS;
@@ -1363,82 +1369,166 @@ RETRO_INLINE void drawCabinMoon(G& g, const MoonCache& moon, const SceneData& d)
 }
 
 template <typename G>
+RETRO_INLINE void drawCabinSnowDetails(G& g, const SceneData& d) {
+    g.setHue(CABIN_HUE_ICE);
+    const uint8_t hi = cabinLuma(d, 22);
+    const uint8_t mid = cabinLuma(d, 15);
+
+    // Main peak, deliberately irregular rather than a symmetric triangle.
+    fill(g, 214, 61, 10, 3, hi);
+    fill(g, 209, 66, 17, 3, hi);
+    fill(g, 204, 71, 12, 3, mid);
+    fill(g, 219, 72, 14, 3, hi);
+    fill(g, 199, 77, 11, 3, mid);
+    fill(g, 227, 78, 10, 3, mid);
+    fill(g, 211, 82, 8, 3, mid);
+
+    // Secondary caps and rocky highlights.
+    fill(g, 91, 86, 8, 2, mid);
+    fill(g, 87, 90, 15, 2, mid);
+    fill(g, 150, 83, 8, 2, mid);
+    fill(g, 146, 87, 14, 2, mid);
+    fill(g, 276, 87, 8, 2, mid);
+    fill(g, 271, 91, 15, 2, mid);
+}
+
+template <typename G>
 RETRO_INLINE void drawCabinHouse(G& g, const SceneData& d) {
-    const int x = 268;
-    const int y = 174;
+    const int x = 270;
+    const int y = 169;
+    const int center = x + 25;
 
     g.setHue(CABIN_HUE_WOOD);
-    fill(g, x + 4, y + 10, 42, 27, cabinLuma(d, 13));
-    fill(g, x + 31, y + 2, 5, 10, cabinLuma(d, 11));
+    fill(g, x + 5, y + 13, 40, 27, cabinLuma(d, 12));
+    fill(g, x + 33, y + 1, 5, 13, cabinLuma(d, 10));
 
+    // Correct roof: narrow at the ridge, widening toward the eaves.
     g.setHue(CABIN_HUE_MOUNTAIN);
-    for (int row = 0; row < 9; row += 2) {
-        const int inset = row * 2;
-        fill(g, x - 2 + inset, y + row, 54 - inset * 2, 2, cabinLuma(d, 15));
+    for (int row = 0; row <= 12; row += 2) {
+        const int half = 4 + row * 2;
+        fill(g, center - half, y + row, half * 2 + 1, 2, cabinLuma(d, 13));
     }
+    fill(g, x - 3, y + 12, 56, 3, cabinLuma(d, 14));
+
+    // Small snow/cool highlight along one roof plane.
+    g.setHue(CABIN_HUE_ICE);
+    fill(g, center - 5, y + 1, 10, 2, cabinLuma(d, 18));
+    fill(g, center - 10, y + 5, 14, 2, cabinLuma(d, 15));
+    fill(g, center - 15, y + 9, 17, 2, cabinLuma(d, 13));
 
     uint8_t windowLum = 0;
     if (d.cabinGlow == 1) {
-        windowLum = cabinLuma(d, 31);
+        windowLum = cabinLuma(d, 30);
     } else if (d.cabinGlow >= 2) {
         const uint32_t bucket = d.frameMs / 2600U;
-        windowLum = cabinLuma(d, (bucket & 1U) ? 42 : 36);
+        windowLum = cabinLuma(d, (bucket & 1U) ? 41 : 35);
     }
 
     if (windowLum) {
         g.setHue(CABIN_HUE_WARM);
-        fill(g, x + 11, y + 20, 8, 8, windowLum);
-        fill(g, x + 31, y + 20, 8, 8, windowLum > 4 ? windowLum - 4 : windowLum);
+        fill(g, x + 11, y + 23, 8, 8, windowLum);
+        fill(g, x + 31, y + 23, 8, 8, windowLum > 4 ? windowLum - 4 : windowLum);
+
         g.setHue(CABIN_HUE_WOOD);
-        fill(g, x + 15, y + 20, 1, 8, cabinLuma(d, 8));
-        fill(g, x + 11, y + 24, 8, 1, cabinLuma(d, 8));
-        fill(g, x + 35, y + 20, 1, 8, cabinLuma(d, 8));
-        fill(g, x + 31, y + 24, 8, 1, cabinLuma(d, 8));
+        fill(g, x + 15, y + 23, 1, 8, cabinLuma(d, 7));
+        fill(g, x + 11, y + 27, 8, 1, cabinLuma(d, 7));
+        fill(g, x + 35, y + 23, 1, 8, cabinLuma(d, 7));
+        fill(g, x + 31, y + 27, 8, 1, cabinLuma(d, 7));
     }
 
     g.setHue(CABIN_HUE_WOOD);
-    fill(g, x + 22, y + 22, 7, 15, cabinLuma(d, 8));
+    fill(g, x + 22, y + 25, 7, 15, cabinLuma(d, 7));
+}
+
+template <typename G>
+RETRO_INLINE void drawCabinClock(G& g, const SceneData& d, int dx, int dy, uint8_t c) {
+    char timeText[8];
+    if (d.use24Hour) {
+        snprintf(timeText, sizeof(timeText), "%02d%c%02d",
+                 d.hour24, ((d.second & 1) == 0) ? ':' : ' ', d.minute);
+    } else {
+        snprintf(timeText, sizeof(timeText), "%d%c%02d",
+                 d.hour12, ((d.second & 1) == 0) ? ':' : ' ', d.minute);
+    }
+
+    // Slightly smaller than the default clock so the landscape can breathe.
+    const uint16_t timeScale = 1472; // 5.75x
+    const int timeW = textWidthFx(timeText, timeScale);
+    const int timeX = (SCREEN_W - timeW) / 2 + dx;
+    const int timeY = 105 + dy;
+
+    drawTextFx(g, timeX, timeY, timeText, timeScale, c, 0);
+
+    if (!d.use24Hour) {
+        const uint16_t suffixScale = SCALE_135;
+        drawTextFx(g, timeX + timeW + 3, timeY + 29,
+                   d.pm ? "PM" : "AM", suffixScale,
+                   c > 14 ? c - 14 : c, 0);
+    }
 }
 
 template <typename G>
 RETRO_INLINE void drawMoonlitCabinScene(G& g, const SceneData& d, const SceneCache& cache) {
-    g.setHue(CABIN_HUE_SKY);
-    fill(g, 0, 0, SCREEN_W, SCREEN_H, cabinLuma(d, 4));
+    // The previous full-screen blue fill was far too electric on the real
+    // Trinitron. Start nearly black and reserve color for the scenery.
+    g.setHue(CABIN_HUE_NEUTRAL);
+    fill(g, 0, 0, SCREEN_W, SCREEN_H, cabinLuma(d, 2));
 
     drawCabinStars(g, d);
     drawCabinMoon(g, cache.moon, d);
 
-    drawCabinMountain(g, 220, 53, 151, 108,
-                      CABIN_HUE_MOUNTAIN, cabinLuma(d, 10),
-                      CABIN_HUE_ICE, cabinLuma(d, 24));
-    drawCabinMountain(g, 132, 73, 154, 90,
-                      CABIN_HUE_SKY, cabinLuma(d, 12),
-                      CABIN_HUE_ICE, cabinLuma(d, 20));
-    drawCabinMountain(g, 296, 84, 155, 70,
-                      CABIN_HUE_SKY, cabinLuma(d, 11),
-                      CABIN_HUE_ICE, cabinLuma(d, 18));
+    static const int16_t farX[] = {0,30,58,84,111,139,167,195,220,247,275,304,336};
+    static const int16_t farY[] = {119,101,112,91,108,86,105,76,60,83,70,99,88};
+    static const int16_t midX[] = {0,29,57,86,114,143,172,201,230,260,289,317,336};
+    static const int16_t midY[] = {137,115,128,103,124,97,121,90,112,96,123,105,116};
+    static const int16_t nearX[] = {0,28,55,83,111,140,169,198,228,258,288,315,336};
+    static const int16_t nearY[] = {151,130,143,119,146,124,148,122,145,130,151,133,143};
 
+    drawCabinRidge(g, farX, farY, 149, CABIN_HUE_MOUNTAIN, cabinLuma(d, 7));
+    drawCabinRidge(g, midX, midY, 154, CABIN_HUE_SKY, cabinLuma(d, 9));
+    drawCabinRidge(g, nearX, nearY, 159, CABIN_HUE_MOUNTAIN, cabinLuma(d, 11));
+    drawCabinSnowDetails(g, d);
+
+    // Dark lake provides negative space for the hero time rather than forcing
+    // the clock to compete with a bright mountain body.
     g.setHue(CABIN_HUE_SKY);
-    fill(g, 0, 150, SCREEN_W, 58, cabinLuma(d, 5));
+    fill(g, 0, 154, SCREEN_W, 52, cabinLuma(d, 3));
 
+    // Horizontal reflection marks are deliberately sparse and short.
     g.setHue(CABIN_HUE_ICE);
-    const uint8_t shimmer = cabinLuma(d, 10);
-    fill(g, 38, 154, 50, 1, shimmer);
-    fill(g, 52, 160, 72, 1, shimmer);
-    fill(g, 19, 168, 43, 1, shimmer);
-    fill(g, 107, 156, 31, 1, shimmer);
+    const uint8_t shimmer = cabinLuma(d, 9);
+    fill(g, 33, 160, 34, 1, shimmer);
+    fill(g, 75, 157, 42, 1, shimmer);
+    fill(g, 118, 165, 25, 1, shimmer);
+    fill(g, 18, 177, 29, 1, shimmer);
+    fill(g, 90, 181, 50, 1, shimmer);
+    fill(g, 216, 161, 24, 1, shimmer);
 
-    drawCabinPine(g, 20, 210, 68, cabinLuma(d, 11));
-    drawCabinPine(g, 49, 211, 50, cabinLuma(d, 13));
-    drawCabinPine(g, 245, 211, 45, cabinLuma(d, 10));
-    drawCabinPine(g, 324, 212, 72, cabinLuma(d, 12));
+    // Soft moon reflection.
+    g.setHue(CABIN_HUE_WARM);
+    const uint8_t moonShimmer = cabinLuma(d, 15);
+    fill(g, 45, 158, 30, 2, moonShimmer);
+    fill(g, 51, 164, 19, 1, moonShimmer);
+    fill(g, 56, 169, 12, 1, moonShimmer);
+
+    // Distant treeline makes the mountains feel grounded.
+    for (int x = 8; x < SCREEN_W; x += 15) {
+        const int h = 18 + (int)(mix32(0x50494E45U ^ (uint32_t)x) & 15U);
+        drawCabinPine(g, x, 165, h, cabinLuma(d, 6));
+    }
+
+    // Foreground framing trees, lower and darker than the old neon-green set.
+    drawCabinPine(g, 18, 211, 63, cabinLuma(d, 8));
+    drawCabinPine(g, 48, 211, 46, cabinLuma(d, 9));
+    drawCabinPine(g, 246, 211, 39, cabinLuma(d, 7));
+    drawCabinPine(g, 326, 212, 66, cabinLuma(d, 8));
     drawCabinHouse(g, d);
 
     g.setHue(CABIN_HUE_TREE);
-    fill(g, 0, 207, SCREEN_W, 11, cabinLuma(d, 7));
+    fill(g, 0, 207, SCREEN_W, 11, cabinLuma(d, 5));
     for (int x = 4; x < SCREEN_W; x += 17) {
         const int h = 3 + (int)(mix32((uint32_t)x * 2246822519U) & 5U);
-        fill(g, x, 207 - h, 2, h, cabinLuma(d, 12));
+        fill(g, x, 207 - h, 2, h, cabinLuma(d, 8));
     }
 }
 
@@ -1446,8 +1536,7 @@ template <typename G>
 RETRO_INLINE void drawMoonlitCabinTheme(G& g, const SceneData& d, const SceneCache& cache) {
     drawMoonlitCabinScene(g, d, cache);
 
-    // All clock information remains neutral so it is easy to read over the
-    // colored scenery and does not pick up the most recently used scene hue.
+    // UI stays neutral over the colored scene.
     g.setHue(CABIN_HUE_NEUTRAL);
 
     const uint8_t night = nightLevel(d);
@@ -1455,7 +1544,7 @@ RETRO_INLINE void drawMoonlitCabinTheme(G& g, const SceneData& d, const SceneCac
                                        d.clockBrightnessPct);
     const uint8_t primaryLum = dimForNight(48, night, d.nightBrightnessPct);
     const uint8_t secondaryLum = dimForNight(39, night, d.nightBrightnessPct);
-    const uint8_t quietLum = dimForNight(28, night, d.nightBrightnessPct);
+    const uint8_t quietLum = dimForNight(27, night, d.nightBrightnessPct);
 
     int dx = 0, dy = 0;
     burnInDrift(d, dx, dy);
@@ -1477,16 +1566,15 @@ RETRO_INLINE void drawMoonlitCabinTheme(G& g, const SceneData& d, const SceneCac
                               quietLum);
     }
 
-    drawClock(g, dx, dy, d.hour12, d.hour24, d.minute, d.second,
-              d.pm, d.use24Hour, clockLum);
+    drawCabinClock(g, d, dx, dy, clockLum);
 
-    drawTextFx(g, 38 + dx, 158 + dy, "NEXT", SCALE_100, secondaryLum, 0);
-    drawTextFx(g, 38 + dx, 175 + dy, cache.text.eventText, SCALE_155, primaryLum, 0);
+    drawTextFx(g, 35 + dx, 164 + dy, "NEXT", SCALE_090, secondaryLum, 0);
+    drawTextFx(g, 35 + dx, 178 + dy, cache.text.eventText, SCALE_135, primaryLum, 0);
     if (d.calendarValid && !d.calendarFresh) {
-        const int eventW = textWidthFx(cache.text.eventText, SCALE_155);
-        int markerX = 38 + dx + eventW + 3;
+        const int eventW = textWidthFx(cache.text.eventText, SCALE_135);
+        int markerX = 35 + dx + eventW + 3;
         if (markerX > 238) markerX = 238;
-        drawTextFx(g, markerX, 174 + dy, "*", SCALE_090, quietLum, 0);
+        drawTextFx(g, markerX, 177 + dy, "*", SCALE_090, quietLum, 0);
     }
 
     drawNormalStatus(g, d, dx, dy, quietLum);
