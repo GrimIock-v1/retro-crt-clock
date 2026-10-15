@@ -1,5 +1,16 @@
 # V3.11.0 - Browser OTA firmware updates
 
+## V3.13.3 - Authored Moonlit Cabin artwork
+
+- Replaced the procedurally generated Moonlit Cabin mountains/trees/house with an authored 168x120 indexed pixel-art backdrop scaled 2x to the 336x240 CRT framebuffer.
+- Added a compact row-RLE art asset in flash rather than another framebuffer or runtime bitmap allocation.
+- Added direct raw composite-palette drawing for the authored backdrop so each pixel can carry its intended hue and luminance.
+- Redesigned the composition around a much larger dark-sky area, layered mountain silhouettes with hand-placed snow facets, a distant treeline, open dark lake, restrained reflections, framed foreground trees, and a properly shaped cabin.
+- Kept the real lunar phase, twinkling stars, and cabin-window glow as live overlays rather than baking them into the artwork.
+- Lowered and slightly reduced the hero clock and calendar information so the scenery reads as a composed scene instead of large colored geometry behind the text.
+- Existing themes continue to use the normal hue/brightness renderer.
+
+
 ## V3.13.2 - Diagnostics IP
 
 - Added the current WiFi IP address to the CRT diagnostics screen.
