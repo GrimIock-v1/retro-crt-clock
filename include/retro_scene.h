@@ -313,7 +313,7 @@ RETRO_INLINE void drawClock(G& g, int xOffset, int yOffset,
     const int timeX = (SCREEN_W - timeW) / 2 + xOffset;
     const int timeY = 94 + yOffset;
 
-    drawCabinSafeTextFx(g, timeX, timeY, timeText, timeScale, c);
+    drawTextFx(g, timeX, timeY, timeText, timeScale, c, 0);
 
     if (!use24Hour) {
         const uint16_t suffixScale = SCALE_155;
@@ -1533,7 +1533,7 @@ RETRO_INLINE void drawCabinClock(G& g, const SceneData& d, int dx, int dy, uint8
     const int timeX = (SCREEN_W - timeW) / 2 + dx;
     const int timeY = 115 + dy;
 
-    drawTextFx(g, timeX, timeY, timeText, timeScale, c, 0);
+    drawCabinSafeTextFx(g, timeX, timeY, timeText, timeScale, c);
 
     if (!d.use24Hour) {
         const uint16_t suffixScale = SCALE_135;
