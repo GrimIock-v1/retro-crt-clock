@@ -1,5 +1,18 @@
 # V3.11.0 - Browser OTA firmware updates
 
+## V3.13.0 - Moonlit Cabin color theme
+
+- Added Moonlit Cabin as theme ID 4 without changing the existing persisted theme IDs.
+- Added a limited-color composite scene with a dark blue sky, layered blue mountains, evergreen silhouettes, lake shimmer, a small warm-lit cabin, and a neutral high-contrast information overlay.
+- Reused the existing lunar calculation so the large pixel moon reflects the actual current phase and waxing/waning direction.
+- Added deterministic star twinkle with Off, Low, and Normal settings plus occasional larger sparkle frames.
+- Added optional cabin window glow with Off, Low, and Normal settings.
+- Added Moonlit Cabin theme controls for scene brightness, star twinkle, and cabin glow.
+- Added hue support to the ESP rendering backend while keeping Cityscape, Retro RPG, and Digital Rain neutral/grayscale.
+- Added a color-aware native simulator preview path for the new theme.
+- Kept all Moonlit Cabin drawing helpers inline and avoided new framebuffers, bitmap decoding, or dynamic scene allocations.
+
+
 ## V3.12.7 - Theme-aware web controls
 
 - Reorganized Display settings into shared General controls plus a contextual Theme Options section.
