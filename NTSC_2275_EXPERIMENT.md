@@ -74,3 +74,19 @@ Pass 4:
   the CRT never changes decoder mode mid-active-frame.
 
 Firmware identifies this pass as `3.13.4-2275p4`.
+
+
+## Pass 5: restore working color phase + keep VBlank switching
+
+The p4 Cabin lost color completely, while p3 had visible color. That confirms the
+explicit alternate-line phase handling is required on this ESP32 I2S/DMA path.
+
+Pass 5 therefore:
+- keeps 910 samples / 227.5 color clocks per scanline,
+- restores p3's alternate-line burst and active-palette phase rotation,
+- keeps p4's VBlank-only monochrome/colorburst switching to avoid the bright
+  decoder-relock flash,
+- keeps true monochrome output for grayscale themes,
+- keeps Moonlit Cabin at the stronger 90% chroma setting.
+
+Firmware identifies this pass as `3.13.4-2275p5`.
