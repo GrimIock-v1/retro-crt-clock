@@ -60,13 +60,15 @@ enum ClockTheme : uint8_t {
     // previously persisted theme IDs never shift to a different design.
     THEME_DAYLIGHT_RESERVED = 1,
     THEME_RPG = 2,
-    THEME_DIGITAL_RAIN = 3
+    THEME_DIGITAL_RAIN = 3,
+    THEME_MOONLIT_CABIN = 4
 };
 
 RETRO_INLINE const char* themeName(uint8_t theme) {
     switch (theme) {
         case THEME_RPG: return "Retro RPG";
         case THEME_DIGITAL_RAIN: return "Digital Rain";
+        case THEME_MOONLIT_CABIN: return "Moonlit Cabin";
         default: return "Rich Cityscape";
     }
 }
@@ -108,6 +110,9 @@ struct SceneData {
     uint8_t clockBrightnessPct = 100; // 25..100
     uint8_t backgroundBrightnessPct = 100; // Cityscape brightness, 0..100
     uint8_t rainBrightnessPct = 100;       // Digital Rain brightness, 0..100
+    uint8_t cabinBrightnessPct = 100;      // Moonlit Cabin scenery, 0..100
+    uint8_t cabinTwinkle = 2;              // 0=off, 1=low, 2=normal
+    uint8_t cabinGlow = 2;                 // 0=off, 1=low, 2=normal
     bool use24Hour = false;
     bool fahrenheit = false;
     bool showWeatherText = true;
@@ -1238,8 +1243,261 @@ RETRO_INLINE void drawDigitalRainTheme(G& g, const SceneData& d, const SceneCach
     if (d.showDayBar) drawDigitalRainDayBar(g, d.secondsToday, frameLum, primaryLum);
 }
 
+
+static constexpr uint8_t CABIN_HUE_NEUTRAL = 0;
+static constexpr uint8_t CABIN_HUE_SKY = 9;
+static constexpr uint8_t CABIN_HUE_ICE = 10;
+static constexpr uint8_t CABIN_HUE_MOUNTAIN = 8;
+static constexpr uint8_t CABIN_HUE_TREE = 12;
+static constexpr uint8_t CABIN_HUE_WOOD = 3;
+static constexpr uint8_t CABIN_HUE_WARM = 15;
+
+RETRO_INLINE uint8_t cabinLuma(const SceneData& d, uint8_t base) {
+    return dimForNight(scaleLuma(base, d.cabinBrightnessPct),
+                       nightLevel(d), d.nightBrightnessPct);
+}
+
+template <typename G>
+RETRO_INLINE void drawCabinMountain(G& g, int peakX, int peakY, int baseY, int halfWidth,
+                                    uint8_t bodyHue, uint8_t bodyLum,
+                                    uint8_t snowHue, uint8_t snowLum) {
+    g.setHue(bodyHue);
+    const int height = baseY - peakY;
+    for (int y = peakY; y < baseY; y += 2) {
+        const int dy = y - peakY;
+        int half = (dy * halfWidth) / (height > 0 ? height : 1);
+        half = (half / 3) * 3;
+        if (half < 1) half = 1;
+        fill(g, peakX - half, y, half * 2 + 1, 2, bodyLum);
+    }
+
+    g.setHue(snowHue);
+    const int capH = height / 4;
+    for (int y = peakY + 2; y < peakY + capH; y += 3) {
+        const int dy = y - peakY;
+        const int bodyHalf = (dy * halfWidth) / (height > 0 ? height : 1);
+        int snowHalf = bodyHalf - dy / 6;
+        if (snowHalf < 1) snowHalf = 1;
+        fill(g, peakX - snowHalf, y, snowHalf * 2 + 1, 2, snowLum);
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawCabinPine(G& g, int x, int baseY, int height, uint8_t lum) {
+    g.setHue(CABIN_HUE_TREE);
+    const int top = baseY - height;
+    fill(g, x, top + height / 3, 2, height * 2 / 3, lum > 5 ? lum - 5 : lum);
+
+    const int layers = 5;
+    for (int i = 0; i < layers; ++i) {
+        const int y = top + 4 + i * ((height - 6) / layers);
+        const int half = 3 + i * (height / 18 + 2);
+        fill(g, x - half, y, half * 2 + 1, 2, lum);
+        if (i > 0) fill(g, x - half + 3, y - 3, (half - 2) * 2, 2, lum);
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawCabinStars(G& g, const SceneData& d) {
+    static const uint16_t xs[] = {
+        18,31,46,82,102,121,143,164,186,205,225,249,271,294,317,
+        26,57,92,133,174,214,258,304,74,151,235,287,322
+    };
+    static const uint8_t ys[] = {
+        48,72,36,54,27,67,43,22,58,34,75,45,25,62,39,
+        91,84,95,78,89,70,88,80,16,96,17,101,92
+    };
+    static constexpr int COUNT = sizeof(xs) / sizeof(xs[0]);
+
+    for (int i = 0; i < COUNT; ++i) {
+        const uint32_t seed = mix32(0x53544152U ^ (uint32_t)i * 2654435761U);
+        uint8_t base = 23;
+
+        if (d.cabinTwinkle == 1) {
+            const uint32_t bucket = (d.frameMs + (seed & 2047U)) / 2400U;
+            base = (mix32(seed ^ bucket) & 1U) ? 25 : 20;
+        } else if (d.cabinTwinkle >= 2) {
+            const uint32_t bucket = (d.frameMs + (seed & 2047U)) / 1100U;
+            base = (uint8_t)(18 + ((mix32(seed ^ bucket) >> 5) & 11U));
+        }
+
+        const uint8_t lum = cabinLuma(d, base);
+        g.setHue((i % 6 == 0) ? CABIN_HUE_ICE : CABIN_HUE_NEUTRAL);
+        pixel(g, xs[i], ys[i], lum);
+
+        if (d.cabinTwinkle >= 2 && (i % 7 == 0)) {
+            const uint32_t bucket = (d.frameMs + (seed & 1023U)) / 1700U;
+            if ((mix32(seed ^ bucket) & 3U) == 0U) {
+                const uint8_t sparkle = cabinLuma(d, 34);
+                pixel(g, xs[i] - 2, ys[i], sparkle);
+                pixel(g, xs[i] + 2, ys[i], sparkle);
+                pixel(g, xs[i], ys[i] - 2, sparkle);
+                pixel(g, xs[i], ys[i] + 2, sparkle);
+            }
+        }
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawCabinMoon(G& g, const MoonCache& moon, const SceneData& d) {
+    static constexpr int cx = 66;
+    static constexpr int cy = 62;
+
+    g.setHue(CABIN_HUE_SKY);
+    const uint8_t darkLum = cabinLuma(d, 7);
+    for (int i = 0; i < MOON_RADIUS * 2 + 1; ++i) {
+        if (moon.diskWidth[i] > 0) {
+            const int dy = i - MOON_RADIUS;
+            fill(g, cx + moon.diskLeft[i], cy + dy, moon.diskWidth[i], 1, darkLum);
+        }
+    }
+
+    g.setHue(CABIN_HUE_WARM);
+    const uint8_t litLum = cabinLuma(d, 43);
+    for (int i = 0; i < MOON_RADIUS * 2 + 1; ++i) {
+        if (moon.litWidth[i] > 0) {
+            const int dy = i - MOON_RADIUS;
+            fill(g, cx + moon.litLeft[i], cy + dy, moon.litWidth[i], 1, litLum);
+        }
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawCabinHouse(G& g, const SceneData& d) {
+    const int x = 268;
+    const int y = 174;
+
+    g.setHue(CABIN_HUE_WOOD);
+    fill(g, x + 4, y + 10, 42, 27, cabinLuma(d, 13));
+    fill(g, x + 31, y + 2, 5, 10, cabinLuma(d, 11));
+
+    g.setHue(CABIN_HUE_MOUNTAIN);
+    for (int row = 0; row < 9; row += 2) {
+        const int inset = row * 2;
+        fill(g, x - 2 + inset, y + row, 54 - inset * 2, 2, cabinLuma(d, 15));
+    }
+
+    uint8_t windowLum = 0;
+    if (d.cabinGlow == 1) {
+        windowLum = cabinLuma(d, 31);
+    } else if (d.cabinGlow >= 2) {
+        const uint32_t bucket = d.frameMs / 2600U;
+        windowLum = cabinLuma(d, (bucket & 1U) ? 42 : 36);
+    }
+
+    if (windowLum) {
+        g.setHue(CABIN_HUE_WARM);
+        fill(g, x + 11, y + 20, 8, 8, windowLum);
+        fill(g, x + 31, y + 20, 8, 8, windowLum > 4 ? windowLum - 4 : windowLum);
+        g.setHue(CABIN_HUE_WOOD);
+        fill(g, x + 15, y + 20, 1, 8, cabinLuma(d, 8));
+        fill(g, x + 11, y + 24, 8, 1, cabinLuma(d, 8));
+        fill(g, x + 35, y + 20, 1, 8, cabinLuma(d, 8));
+        fill(g, x + 31, y + 24, 8, 1, cabinLuma(d, 8));
+    }
+
+    g.setHue(CABIN_HUE_WOOD);
+    fill(g, x + 22, y + 22, 7, 15, cabinLuma(d, 8));
+}
+
+template <typename G>
+RETRO_INLINE void drawMoonlitCabinScene(G& g, const SceneData& d, const SceneCache& cache) {
+    g.setHue(CABIN_HUE_SKY);
+    fill(g, 0, 0, SCREEN_W, SCREEN_H, cabinLuma(d, 4));
+
+    drawCabinStars(g, d);
+    drawCabinMoon(g, cache.moon, d);
+
+    drawCabinMountain(g, 220, 53, 151, 108,
+                      CABIN_HUE_MOUNTAIN, cabinLuma(d, 10),
+                      CABIN_HUE_ICE, cabinLuma(d, 24));
+    drawCabinMountain(g, 132, 73, 154, 90,
+                      CABIN_HUE_SKY, cabinLuma(d, 12),
+                      CABIN_HUE_ICE, cabinLuma(d, 20));
+    drawCabinMountain(g, 296, 84, 155, 70,
+                      CABIN_HUE_SKY, cabinLuma(d, 11),
+                      CABIN_HUE_ICE, cabinLuma(d, 18));
+
+    g.setHue(CABIN_HUE_SKY);
+    fill(g, 0, 150, SCREEN_W, 58, cabinLuma(d, 5));
+
+    g.setHue(CABIN_HUE_ICE);
+    const uint8_t shimmer = cabinLuma(d, 10);
+    fill(g, 38, 154, 50, 1, shimmer);
+    fill(g, 52, 160, 72, 1, shimmer);
+    fill(g, 19, 168, 43, 1, shimmer);
+    fill(g, 107, 156, 31, 1, shimmer);
+
+    drawCabinPine(g, 20, 210, 68, cabinLuma(d, 11));
+    drawCabinPine(g, 49, 211, 50, cabinLuma(d, 13));
+    drawCabinPine(g, 245, 211, 45, cabinLuma(d, 10));
+    drawCabinPine(g, 324, 212, 72, cabinLuma(d, 12));
+    drawCabinHouse(g, d);
+
+    g.setHue(CABIN_HUE_TREE);
+    fill(g, 0, 207, SCREEN_W, 11, cabinLuma(d, 7));
+    for (int x = 4; x < SCREEN_W; x += 17) {
+        const int h = 3 + (int)(mix32((uint32_t)x * 2246822519U) & 5U);
+        fill(g, x, 207 - h, 2, h, cabinLuma(d, 12));
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawMoonlitCabinTheme(G& g, const SceneData& d, const SceneCache& cache) {
+    drawMoonlitCabinScene(g, d, cache);
+
+    // All clock information remains neutral so it is easy to read over the
+    // colored scenery and does not pick up the most recently used scene hue.
+    g.setHue(CABIN_HUE_NEUTRAL);
+
+    const uint8_t night = nightLevel(d);
+    const uint8_t clockLum = scaleLuma(dimForNight(54, night, d.nightBrightnessPct),
+                                       d.clockBrightnessPct);
+    const uint8_t primaryLum = dimForNight(48, night, d.nightBrightnessPct);
+    const uint8_t secondaryLum = dimForNight(39, night, d.nightBrightnessPct);
+    const uint8_t quietLum = dimForNight(28, night, d.nightBrightnessPct);
+
+    int dx = 0, dy = 0;
+    burnInDrift(d, dx, dy);
+
+    drawTextFx(g, 13 + dx, 17 + dy, cache.text.dateText, SCALE_115, secondaryLum, 0);
+
+    drawWeatherIcon(g, 244 + dx, 14 + dy,
+                    d.weatherValid ? d.condition : CONDITION_UNKNOWN,
+                    primaryLum);
+    drawTemperatureCached(g, 322 + dx, 17 + dy,
+                          cache.text.tempText, cache.text.tempUnit, primaryLum);
+
+    char unitText[2] = {cache.text.tempUnit, 0};
+    const int tempLeft = (322 + dx) -
+        (textWidthFx(cache.text.tempText, SCALE_135) + 9 + textWidthFx(unitText, SCALE_135));
+    if (d.showWeatherText) {
+        drawWeatherDescriptor(g, tempLeft, 30 + dy,
+                              d.weatherValid ? d.condition : CONDITION_UNKNOWN,
+                              quietLum);
+    }
+
+    drawClock(g, dx, dy, d.hour12, d.hour24, d.minute, d.second,
+              d.pm, d.use24Hour, clockLum);
+
+    drawTextFx(g, 38 + dx, 158 + dy, "NEXT", SCALE_100, secondaryLum, 0);
+    drawTextFx(g, 38 + dx, 175 + dy, cache.text.eventText, SCALE_155, primaryLum, 0);
+    if (d.calendarValid && !d.calendarFresh) {
+        const int eventW = textWidthFx(cache.text.eventText, SCALE_155);
+        int markerX = 38 + dx + eventW + 3;
+        if (markerX > 238) markerX = 238;
+        drawTextFx(g, markerX, 174 + dy, "*", SCALE_090, quietLum, 0);
+    }
+
+    drawNormalStatus(g, d, dx, dy, quietLum);
+    if (d.showDayBar) drawDayHorizon(g, d.secondsToday);
+
+    g.setHue(CABIN_HUE_NEUTRAL);
+}
+
 template <typename G>
 RETRO_INLINE void render(G& g, const SceneData& d, SceneCache& cache) {
+    g.setHue(0);
     prepareSceneCache(cache, d);
 
     if (d.diagnosticsMode) {
@@ -1255,6 +1513,11 @@ RETRO_INLINE void render(G& g, const SceneData& d, SceneCache& cache) {
     }
     if (d.timeValid && d.theme == THEME_DIGITAL_RAIN) {
         drawDigitalRainTheme(g, d, cache);
+        if (d.wifiResetPercent > 0) drawResetOverlay(g, d.wifiResetPercent);
+        return;
+    }
+    if (d.timeValid && d.theme == THEME_MOONLIT_CABIN) {
+        drawMoonlitCabinTheme(g, d, cache);
         if (d.wifiResetPercent > 0) drawResetOverlay(g, d.wifiResetPercent);
         return;
     }
