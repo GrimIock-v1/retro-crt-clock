@@ -1,5 +1,17 @@
 # V3.11.0 - Browser OTA firmware updates
 
+## V3.13.1 - Moonlit Cabin art pass
+
+- Reworked the Moonlit Cabin scene after first CRT hardware review.
+- Replaced the bright full-screen blue background with a near-black sky so the palette is closer to the original concept and less saturated on the Trinitron.
+- Replaced the three simple triangular mountains with three irregular layered ridge profiles and hand-placed snow/facet details.
+- Added a darker lake/negative-space band so the clock reads against the scene instead of fighting the mountain body.
+- Improved pine silhouettes and added a distant treeline for more depth.
+- Corrected the cabin roof geometry so it widens downward from the ridge instead of appearing upside down.
+- Added a small roof highlight, refined the warm windows, and kept the real lunar phase and star-twinkle animation.
+- Reduced the hero clock slightly and moved the calendar treatment to give the landscape more room.
+
+
 ## V3.13.0 - Moonlit Cabin color theme
 
 - Added Moonlit Cabin as theme ID 4 without changing the existing persisted theme IDs.
