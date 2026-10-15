@@ -8,9 +8,15 @@ struct PreviewBackend {
     int w;
     int h;
     std::vector<uint8_t> pixels;
+    std::vector<uint8_t> hues;
+    uint8_t currentHue = 0;
 
     PreviewBackend(int width, int height)
-        : w(width), h(height), pixels(width * height, 0) {}
+        : w(width), h(height), pixels(width * height, 0), hues(width * height, 0) {}
+
+    RETRO_INLINE void setHue(uint8_t hue) {
+        currentHue = hue & 0x0F;
+    }
 
     RETRO_INLINE void fillRect(int x, int y, int rw, int rh, uint8_t c) {
         int x0 = std::max(0, x);
@@ -19,29 +25,49 @@ struct PreviewBackend {
         int y1 = std::min(h, y + rh);
 
         for (int yy = y0; yy < y1; ++yy)
-            for (int xx = x0; xx < x1; ++xx)
-                pixels[yy * w + xx] = c;
+            for (int xx = x0; xx < x1; ++xx) {
+                const int idx = yy * w + xx;
+                pixels[idx] = c;
+                hues[idx] = currentHue;
+            }
     }
 
     RETRO_INLINE void pixel(int x, int y, uint8_t c) {
-        if (x >= 0 && x < w && y >= 0 && y < h)
-            pixels[y * w + x] = c;
+        if (x >= 0 && x < w && y >= 0 && y < h) {
+            const int idx = y * w + x;
+            pixels[idx] = c;
+            hues[idx] = currentHue;
+        }
     }
 
     void clear() {
         std::fill(pixels.begin(), pixels.end(), 0);
+        std::fill(hues.begin(), hues.end(), 0);
+        currentHue = 0;
     }
 
     void writePPM(const char* path) const {
         FILE* f = fopen(path, "wb");
         if (!f) return;
 
+        static const uint8_t hueRgb[16][3] = {
+            {255,255,255},{233,252,139},{255,238,150},{255,223,178},
+            {255,210,218},{255,203,255},{255,202,255},{251,208,255},
+            {227,220,255},{204,234,255},{188,249,255},{181,255,237},
+            {186,255,194},{201,255,160},{223,255,141},{247,244,143}
+        };
+
         fprintf(f, "P6\n%d %d\n255\n", w, h);
-        for (uint8_t v : pixels) {
-            uint8_t q = (uint8_t)((v * 255U) / 54U);
-            fputc(q, f);
-            fputc(q, f);
-            fputc(q, f);
+        for (size_t i = 0; i < pixels.size(); ++i) {
+            const uint8_t q = (uint8_t)((pixels[i] * 255U) / 54U);
+            const uint8_t hue = hues[i] & 0x0F;
+            if (hue == 0) {
+                fputc(q, f); fputc(q, f); fputc(q, f);
+            } else {
+                fputc((hueRgb[hue][0] * q) / 255U, f);
+                fputc((hueRgb[hue][1] * q) / 255U, f);
+                fputc((hueRgb[hue][2] * q) / 255U, f);
+            }
         }
         fclose(f);
     }
@@ -125,6 +151,11 @@ int main() {
     digitalRainTheme.theme = retro::THEME_DIGITAL_RAIN;
     digitalRainTheme.frameMs = 118000;
     writeScene(g, cache, digitalRainTheme, "preview-theme-digital-rain.ppm");
+
+    auto moonlitCabinTheme = evening;
+    moonlitCabinTheme.theme = retro::THEME_MOONLIT_CABIN;
+    moonlitCabinTheme.frameMs = 121000;
+    writeScene(g, cache, moonlitCabinTheme, "preview-theme-moonlit-cabin.ppm");
 
     auto stale = evening;
     stale.weatherFresh = false;
