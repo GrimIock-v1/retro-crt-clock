@@ -1,5 +1,11 @@
 # V3.11.0 - Browser OTA firmware updates
 
+## V3.13.2 - Diagnostics IP
+
+- Added the current WiFi IP address to the CRT diagnostics screen.
+- Reused the existing cached diagnostics refresh path so the renderer does not query WiFi directly.
+
+
 ## V3.13.1 - Moonlit Cabin art pass
 
 - Reworked the Moonlit Cabin scene after first CRT hardware review.
