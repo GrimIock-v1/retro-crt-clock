@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include "arcade_bitmap_font.h"
 #include "weather_icon_bitmaps.h"
+#include "moonlit_cabin_art.h"
 
 #if defined(__GNUC__)
 #define RETRO_INLINE inline __attribute__((always_inline))
@@ -1259,6 +1260,66 @@ RETRO_INLINE uint8_t cabinLuma(const SceneData& d, uint8_t base) {
                        nightLevel(d), d.nightBrightnessPct);
 }
 
+RETRO_INLINE uint8_t cabinPaletteValue(const SceneData& d, uint8_t raw) {
+    const uint8_t hue = raw & 0xF0;
+    const uint8_t sourceLum = raw & 0x0F;
+    if (sourceLum == 0) return hue;
+
+    int pct = d.cabinBrightnessPct;
+    const int night = nightLevel(d);
+    const int nightPct = 100 - ((100 - d.nightBrightnessPct) * night) / 255;
+    pct = (pct * nightPct) / 100;
+
+    int lum = (sourceLum * pct + 50) / 100;
+    if (pct > 0 && lum == 0) lum = 1;
+    lum = clampInt(lum, 0, 15);
+    return (uint8_t)(hue | (uint8_t)lum);
+}
+
+template <typename G>
+RETRO_INLINE void drawCabinAuthoredBackground(G& g, const SceneData& d) {
+    size_t i = 0;
+    int x = 0;
+    int y = 0;
+
+    while (i + 1 < moonlit_cabin_art::RLE_SIZE && y < moonlit_cabin_art::HEIGHT) {
+        const uint8_t count = moonlit_cabin_art::RLE[i++];
+        const uint8_t raw = moonlit_cabin_art::RLE[i++];
+
+        if (count == 0) {
+            x = 0;
+            ++y;
+            continue;
+        }
+
+        g.fillRectPalette(x * 2, y * 2, count * 2, 2, cabinPaletteValue(d, raw));
+        x += count;
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawCabinWindowGlow(G& g, const SceneData& d) {
+    uint8_t windowLum = 0;
+    if (d.cabinGlow == 1) {
+        windowLum = cabinLuma(d, 30);
+    } else if (d.cabinGlow >= 2) {
+        const uint32_t bucket = d.frameMs / 2600U;
+        windowLum = cabinLuma(d, (bucket & 1U) ? 41 : 35);
+    }
+    if (!windowLum) return;
+
+    g.setHue(CABIN_HUE_WARM);
+    fill(g, 278, 194, 10, 10, windowLum);
+    fill(g, 298, 194, 10, 10, windowLum > 4 ? windowLum - 4 : windowLum);
+
+    g.setHue(CABIN_HUE_WOOD);
+    const uint8_t frameLum = cabinLuma(d, 8);
+    fill(g, 282, 194, 2, 10, frameLum);
+    fill(g, 278, 198, 10, 2, frameLum);
+    fill(g, 302, 194, 2, 10, frameLum);
+    fill(g, 298, 198, 10, 2, frameLum);
+}
+
 template <typename G, size_t N>
 RETRO_INLINE void drawCabinRidge(G& g,
                                  const int16_t (&xs)[N],
@@ -1453,17 +1514,18 @@ RETRO_INLINE void drawCabinClock(G& g, const SceneData& d, int dx, int dy, uint8
                  d.hour12, ((d.second & 1) == 0) ? ':' : ' ', d.minute);
     }
 
-    // Slightly smaller than the default clock so the landscape can breathe.
-    const uint16_t timeScale = 1472; // 5.75x
+    // Keep the clock large, but lower it into the dark lake band so it no
+    // longer obscures the authored mountain silhouettes.
+    const uint16_t timeScale = 1344; // 5.25x
     const int timeW = textWidthFx(timeText, timeScale);
     const int timeX = (SCREEN_W - timeW) / 2 + dx;
-    const int timeY = 105 + dy;
+    const int timeY = 115 + dy;
 
     drawTextFx(g, timeX, timeY, timeText, timeScale, c, 0);
 
     if (!d.use24Hour) {
         const uint16_t suffixScale = SCALE_135;
-        drawTextFx(g, timeX + timeW + 3, timeY + 29,
+        drawTextFx(g, timeX + timeW + 3, timeY + 26,
                    d.pm ? "PM" : "AM", suffixScale,
                    c > 14 ? c - 14 : c, 0);
     }
@@ -1471,67 +1533,16 @@ RETRO_INLINE void drawCabinClock(G& g, const SceneData& d, int dx, int dy, uint8
 
 template <typename G>
 RETRO_INLINE void drawMoonlitCabinScene(G& g, const SceneData& d, const SceneCache& cache) {
-    // The previous full-screen blue fill was far too electric on the real
-    // Trinitron. Start nearly black and reserve color for the scenery.
-    g.setHue(CABIN_HUE_NEUTRAL);
-    fill(g, 0, 0, SCREEN_W, SCREEN_H, cabinLuma(d, 2));
+    // V3.13.3 moves the scene from generated geometry to authored 168x120
+    // pixel art. The small indexed backdrop is RLE-compressed in flash and
+    // scales 2x with nearest-neighbor blocks to preserve the intended CRT look.
+    drawCabinAuthoredBackground(g, d);
 
+    // Live elements remain procedural so the scene is still a clock, not a
+    // static wallpaper.
     drawCabinStars(g, d);
     drawCabinMoon(g, cache.moon, d);
-
-    static const int16_t farX[] = {0,30,58,84,111,139,167,195,220,247,275,304,336};
-    static const int16_t farY[] = {119,101,112,91,108,86,105,76,60,83,70,99,88};
-    static const int16_t midX[] = {0,29,57,86,114,143,172,201,230,260,289,317,336};
-    static const int16_t midY[] = {137,115,128,103,124,97,121,90,112,96,123,105,116};
-    static const int16_t nearX[] = {0,28,55,83,111,140,169,198,228,258,288,315,336};
-    static const int16_t nearY[] = {151,130,143,119,146,124,148,122,145,130,151,133,143};
-
-    drawCabinRidge(g, farX, farY, 149, CABIN_HUE_MOUNTAIN, cabinLuma(d, 7));
-    drawCabinRidge(g, midX, midY, 154, CABIN_HUE_SKY, cabinLuma(d, 9));
-    drawCabinRidge(g, nearX, nearY, 159, CABIN_HUE_MOUNTAIN, cabinLuma(d, 11));
-    drawCabinSnowDetails(g, d);
-
-    // Dark lake provides negative space for the hero time rather than forcing
-    // the clock to compete with a bright mountain body.
-    g.setHue(CABIN_HUE_SKY);
-    fill(g, 0, 154, SCREEN_W, 52, cabinLuma(d, 3));
-
-    // Horizontal reflection marks are deliberately sparse and short.
-    g.setHue(CABIN_HUE_ICE);
-    const uint8_t shimmer = cabinLuma(d, 9);
-    fill(g, 33, 160, 34, 1, shimmer);
-    fill(g, 75, 157, 42, 1, shimmer);
-    fill(g, 118, 165, 25, 1, shimmer);
-    fill(g, 18, 177, 29, 1, shimmer);
-    fill(g, 90, 181, 50, 1, shimmer);
-    fill(g, 216, 161, 24, 1, shimmer);
-
-    // Soft moon reflection.
-    g.setHue(CABIN_HUE_WARM);
-    const uint8_t moonShimmer = cabinLuma(d, 15);
-    fill(g, 45, 158, 30, 2, moonShimmer);
-    fill(g, 51, 164, 19, 1, moonShimmer);
-    fill(g, 56, 169, 12, 1, moonShimmer);
-
-    // Distant treeline makes the mountains feel grounded.
-    for (int x = 8; x < SCREEN_W; x += 15) {
-        const int h = 18 + (int)(mix32(0x50494E45U ^ (uint32_t)x) & 15U);
-        drawCabinPine(g, x, 165, h, cabinLuma(d, 6));
-    }
-
-    // Foreground framing trees, lower and darker than the old neon-green set.
-    drawCabinPine(g, 18, 211, 63, cabinLuma(d, 8));
-    drawCabinPine(g, 48, 211, 46, cabinLuma(d, 9));
-    drawCabinPine(g, 246, 211, 39, cabinLuma(d, 7));
-    drawCabinPine(g, 326, 212, 66, cabinLuma(d, 8));
-    drawCabinHouse(g, d);
-
-    g.setHue(CABIN_HUE_TREE);
-    fill(g, 0, 207, SCREEN_W, 11, cabinLuma(d, 5));
-    for (int x = 4; x < SCREEN_W; x += 17) {
-        const int h = 3 + (int)(mix32((uint32_t)x * 2246822519U) & 5U);
-        fill(g, x, 207 - h, 2, h, cabinLuma(d, 8));
-    }
+    drawCabinWindowGlow(g, d);
 }
 
 template <typename G>
@@ -1570,13 +1581,13 @@ RETRO_INLINE void drawMoonlitCabinTheme(G& g, const SceneData& d, const SceneCac
 
     drawCabinClock(g, d, dx, dy, clockLum);
 
-    drawTextFx(g, 35 + dx, 164 + dy, "NEXT", SCALE_090, secondaryLum, 0);
-    drawTextFx(g, 35 + dx, 178 + dy, cache.text.eventText, SCALE_135, primaryLum, 0);
+    drawTextFx(g, 35 + dx, 169 + dy, "NEXT", SCALE_090, secondaryLum, 0);
+    drawTextFx(g, 35 + dx, 183 + dy, cache.text.eventText, SCALE_135, primaryLum, 0);
     if (d.calendarValid && !d.calendarFresh) {
         const int eventW = textWidthFx(cache.text.eventText, SCALE_135);
         int markerX = 35 + dx + eventW + 3;
         if (markerX > 238) markerX = 238;
-        drawTextFx(g, markerX, 177 + dy, "*", SCALE_090, quietLum, 0);
+        drawTextFx(g, markerX, 182 + dy, "*", SCALE_090, quietLum, 0);
     }
 
     drawNormalStatus(g, d, dx, dy, quietLum);
