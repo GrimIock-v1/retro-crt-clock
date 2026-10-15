@@ -18,6 +18,22 @@ struct PreviewBackend {
         currentHue = hue & 0x0F;
     }
 
+    RETRO_INLINE void fillRectPalette(int x, int y, int rw, int rh, uint8_t palette) {
+        int x0 = std::max(0, x);
+        int y0 = std::max(0, y);
+        int x1 = std::min(w, x + rw);
+        int y1 = std::min(h, y + rh);
+        const uint8_t hue = (palette >> 4) & 0x0F;
+        const uint8_t lum = (uint8_t)(((palette & 0x0F) * 54U + 7U) / 15U);
+
+        for (int yy = y0; yy < y1; ++yy)
+            for (int xx = x0; xx < x1; ++xx) {
+                const int idx = yy * w + xx;
+                pixels[idx] = lum;
+                hues[idx] = hue;
+            }
+    }
+
     RETRO_INLINE void fillRect(int x, int y, int rw, int rh, uint8_t c) {
         int x0 = std::max(0, x);
         int y0 = std::max(0, y);
