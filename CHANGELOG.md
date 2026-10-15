@@ -1,5 +1,15 @@
 # V3.11.0 - Browser OTA firmware updates
 
+## V3.12.7 - Theme-aware web controls
+
+- Reorganized Display settings into shared General controls plus a contextual Theme Options section.
+- Rich Cityscape now exposes City brightness and City movement only when that theme is selected.
+- Digital Rain now has its own Rain brightness and Rain speed settings instead of reusing Cityscape controls.
+- Retro RPG currently shows no theme-specific controls rather than irrelevant sliders.
+- Added separate persisted Digital Rain brightness/speed values and migrated existing V2 settings so upgrades keep the same visual values.
+- Kept clock brightness, night brightness, burn-in drift, time format, temperature, weather descriptor, and day bar as shared controls.
+
+
 ## V3.12.6 - Digital Rain refinement
 
 - Removed the HUD boxes and opaque panel behind the clock information so date, weather, time, and next event float directly over the rain.
