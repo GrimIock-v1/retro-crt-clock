@@ -47,7 +47,6 @@ inline void retroApplySoftNtscPalette(uint8_t chromaPercent = 60) {
     }
 
     RawCompositeVideoBlitter::_palette = retroSoftNtscPalette;
-    RawCompositeVideoBlitter::ntsc_rebuild_phase_palette();
 }
 
 
