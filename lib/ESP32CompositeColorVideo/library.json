@@ -1,0 +1,7 @@
+{
+  "name": "ESP32CompositeColorVideo-local-2275",
+  "version": "0.0.1",
+  "build": {
+    "srcDir": "src"
+  }
+}
