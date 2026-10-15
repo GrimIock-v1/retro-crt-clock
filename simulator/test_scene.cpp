@@ -98,6 +98,15 @@ int main() {
     d.citySpeed = 3;
     assert(retro::cityFrameMs(d) == 20000);
 
+    d.rainSpeed = 0;
+    assert(retro::rainFrameMs(d) == 0);
+    d.rainSpeed = 1;
+    assert(retro::rainFrameMs(d) == 5000);
+    d.rainSpeed = 2;
+    assert(retro::rainFrameMs(d) == 10000);
+    d.rainSpeed = 3;
+    assert(retro::rainFrameMs(d) == 20000);
+
     // Theme IDs stay compact and stable because they are persisted in NVS.
     assert(retro::THEME_CITY == 0);
     assert(retro::THEME_DAYLIGHT_RESERVED == 1);
