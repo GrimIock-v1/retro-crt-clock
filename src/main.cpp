@@ -36,7 +36,7 @@ static constexpr uint32_t HEALTH_LOG_INTERVAL_MS = 5UL * 60UL * 1000UL;
 
 static constexpr int BRIDGE_API_VERSION = 3;
 static constexpr int SETTINGS_VERSION = 4;
-static constexpr const char* FIRMWARE_VERSION = "3.13.4-2275p2";
+static constexpr const char* FIRMWARE_VERSION = "3.13.4-2275p3";
 static constexpr const char* DEFAULT_BRIDGE_URL =
     "http://crt-clock-bridge.ultramagnus.ca/status";
 
@@ -1123,6 +1123,15 @@ static void updateClockFields() {
 }
 
 static void drawSceneToBackbuffer(const retro::SceneData& frameScene) {
+    // Grayscale themes are sent as true monochrome composite: no colorburst
+    // means the CRT does not attempt Y/C separation and therefore cannot
+    // invent cyan/yellow fringe from sharp luma edges. Moonlit Cabin keeps
+    // colorburst enabled so its authored palette remains in color.
+    const bool wantsColor =
+        !frameScene.diagnosticsMode &&
+        frameScene.theme == retro::THEME_MOONLIT_CABIN;
+    retroSetNtscColorEnabled(wantsColor);
+
     graphics.setHue(0);
     graphics.begin(0);
     retro::render(backend, frameScene, sceneCache);
@@ -1282,10 +1291,10 @@ static bool startVideo() {
                   RawCompositeVideoBlitter::_line_width,
                   (double)RawCompositeVideoBlitter::_line_width /
                       (double)RawCompositeVideoBlitter::_samples_per_cc);
-    // The upstream color palette is extremely saturated for fine CRT UI work.
-    // Pull chroma 40% toward neutral while preserving average luminance.
-    retroApplySoftNtscPalette(60);
-    Serial.println("NTSC soft-chroma palette active: 60%");
+    // Keep color calmer than upstream, but restore enough chroma for the
+    // Moonlit Cabin palette to separate clearly on the Sony.
+    retroApplySoftNtscPalette(90);
+    Serial.println("NTSC soft-chroma palette active: 90%");
     graphics.init();
     videoHardwareInitialized = true;
 
