@@ -1,5 +1,14 @@
 # V3.11.0 - Browser OTA firmware updates
 
+## V3.13.4 - CRT-safe chroma and text edges
+
+- Reduced NTSC chroma amplitude to 60% of the upstream palette while preserving average luminance, producing calmer colors with less chroma energy for the CRT decoder to separate.
+- Kept grayscale palette entries unchanged.
+- Added a one-pixel low-luma horizontal shoulder to Moonlit Cabin text so the sharpest black/white transitions are slightly band-limited before composite encoding.
+- Applied the text-edge treatment to the Cabin hero time, AM/PM, date, NEXT label, and event text.
+- Left the low-level NTSC line timing unchanged on this branch; the 227.5-color-clock timing change is isolated on `experiment/ntsc-2275`.
+
+
 ## V3.13.3 - Authored Moonlit Cabin artwork
 
 - Replaced the procedurally generated Moonlit Cabin mountains/trees/house with an authored 168x120 indexed pixel-art backdrop scaled 2x to the 336x240 CRT framebuffer.
