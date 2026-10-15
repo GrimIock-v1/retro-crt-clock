@@ -35,8 +35,8 @@ static constexpr uint32_t RENDER_DIAG_CACHE_INTERVAL_MS = 5000;
 static constexpr uint32_t HEALTH_LOG_INTERVAL_MS = 5UL * 60UL * 1000UL;
 
 static constexpr int BRIDGE_API_VERSION = 3;
-static constexpr int SETTINGS_VERSION = 2;
-static constexpr const char* FIRMWARE_VERSION = "3.12.6";
+static constexpr int SETTINGS_VERSION = 3;
+static constexpr const char* FIRMWARE_VERSION = "3.12.7";
 static constexpr const char* DEFAULT_BRIDGE_URL =
     "http://crt-clock-bridge.ultramagnus.ca/status";
 
@@ -59,11 +59,13 @@ struct ClockSettings {
     uint8_t nightBrightness = 75;
     uint8_t clockBrightness = 100;
     uint8_t backgroundBrightness = 100;
+    uint8_t rainBrightness = 100;
     bool use24Hour = false;
     bool fahrenheit = false;
     bool weatherText = true;
     bool dayBar = true;
     uint8_t citySpeed = 2;
+    uint8_t rainSpeed = 2;
     uint8_t theme = retro::THEME_CITY;
 };
 
@@ -167,7 +169,9 @@ static void clampSettings(ClockSettings& cfg) {
     cfg.nightBrightness = (uint8_t)clampValue(cfg.nightBrightness, 10, 100);
     cfg.clockBrightness = (uint8_t)clampValue(cfg.clockBrightness, 25, 100);
     cfg.backgroundBrightness = (uint8_t)clampValue(cfg.backgroundBrightness, 0, 100);
+    cfg.rainBrightness = (uint8_t)clampValue(cfg.rainBrightness, 0, 100);
     cfg.citySpeed = (uint8_t)clampValue(cfg.citySpeed, 0, 3);
+    cfg.rainSpeed = (uint8_t)clampValue(cfg.rainSpeed, 0, 3);
     cfg.theme = (uint8_t)clampValue(cfg.theme, retro::THEME_CITY, retro::THEME_DIGITAL_RAIN);
     if (cfg.theme == retro::THEME_DAYLIGHT_RESERVED) cfg.theme = retro::THEME_CITY;
     if (!cfg.bridgeUrl[0]) strlcpy(cfg.bridgeUrl, DEFAULT_BRIDGE_URL, sizeof(cfg.bridgeUrl));
@@ -185,18 +189,29 @@ static void loadSettings() {
     String storedBridge = prefs.getString("bridge_url", settings.bridgeUrl);
     String storedTz = prefs.getString("tz_rule", settings.timezoneRule);
     settings.version = prefs.getUChar("cfg_ver", SETTINGS_VERSION);
+    const uint8_t storedSettingsVersion = settings.version;
     settings.driftPixels = prefs.getUChar("drift_px", settings.driftPixels);
     settings.driftMinutes = prefs.getUShort("drift_min", settings.driftMinutes);
     settings.nightBrightness = prefs.getUChar("night_pct", settings.nightBrightness);
     settings.clockBrightness = prefs.getUChar("clock_pct", settings.clockBrightness);
     settings.backgroundBrightness = prefs.getUChar("bg_pct", settings.backgroundBrightness);
+    settings.rainBrightness = prefs.getUChar("rain_pct", settings.rainBrightness);
     settings.use24Hour = prefs.getBool("use_24h", settings.use24Hour);
     settings.fahrenheit = prefs.getBool("fahrenheit", settings.fahrenheit);
     settings.weatherText = prefs.getBool("wx_text", settings.weatherText);
     settings.dayBar = prefs.getBool("day_bar", settings.dayBar);
     settings.citySpeed = prefs.getUChar("city_speed", settings.citySpeed);
+    settings.rainSpeed = prefs.getUChar("rain_speed", settings.rainSpeed);
     settings.theme = prefs.getUChar("theme", settings.theme);
     prefs.end();
+
+    // V3 settings split the old generic background controls into per-theme
+    // values. Seed Digital Rain from the previous shared values so upgrading
+    // does not unexpectedly change its appearance or motion.
+    if (storedSettingsVersion < 3) {
+        settings.rainBrightness = settings.backgroundBrightness;
+        settings.rainSpeed = settings.citySpeed;
+    }
 
     if (storedBridge == "http://192.168.1.50:8080/api/status" ||
         storedBridge == "http://retroclock.local:8080/api/status") {
@@ -219,11 +234,13 @@ static void persistSettings(const ClockSettings& cfg) {
     prefs.putUChar("night_pct", cfg.nightBrightness);
     prefs.putUChar("clock_pct", cfg.clockBrightness);
     prefs.putUChar("bg_pct", cfg.backgroundBrightness);
+    prefs.putUChar("rain_pct", cfg.rainBrightness);
     prefs.putBool("use_24h", cfg.use24Hour);
     prefs.putBool("fahrenheit", cfg.fahrenheit);
     prefs.putBool("wx_text", cfg.weatherText);
     prefs.putBool("day_bar", cfg.dayBar);
     prefs.putUChar("city_speed", cfg.citySpeed);
+    prefs.putUChar("rain_speed", cfg.rainSpeed);
     prefs.putUChar("theme", cfg.theme);
     prefs.end();
 }
@@ -234,11 +251,13 @@ static void applySettingsToScene() {
     scene.nightBrightnessPct = settings.nightBrightness;
     scene.clockBrightnessPct = settings.clockBrightness;
     scene.backgroundBrightnessPct = settings.backgroundBrightness;
+    scene.rainBrightnessPct = settings.rainBrightness;
     scene.use24Hour = settings.use24Hour;
     scene.fahrenheit = settings.fahrenheit;
     scene.showWeatherText = settings.weatherText;
     scene.showDayBar = settings.dayBar;
     scene.citySpeed = settings.citySpeed;
+    scene.rainSpeed = settings.rainSpeed;
     scene.theme = settings.theme;
 }
 
@@ -265,7 +284,9 @@ static void parseDisplaySettings(ClockSettings& cfg) {
     cfg.nightBrightness = (uint8_t)serverIntArg("night_brightness", cfg.nightBrightness, 10, 100);
     cfg.clockBrightness = (uint8_t)serverIntArg("clock_brightness", cfg.clockBrightness, 25, 100);
     cfg.backgroundBrightness = (uint8_t)serverIntArg("background_brightness", cfg.backgroundBrightness, 0, 100);
+    cfg.rainBrightness = (uint8_t)serverIntArg("rain_brightness", cfg.rainBrightness, 0, 100);
     cfg.citySpeed = (uint8_t)serverIntArg("city_speed", cfg.citySpeed, 0, 3);
+    cfg.rainSpeed = (uint8_t)serverIntArg("rain_speed", cfg.rainSpeed, 0, 3);
     cfg.theme = (uint8_t)serverIntArg("theme", cfg.theme, retro::THEME_CITY, retro::THEME_DIGITAL_RAIN);
     if (configServer.hasArg("time_format")) cfg.use24Hour = configServer.arg("time_format") == "24";
     if (configServer.hasArg("temperature_unit")) cfg.fahrenheit = configServer.arg("temperature_unit") == "F";
@@ -510,7 +531,9 @@ static void handleApiSettings() {
     doc["night_brightness"] = settings.nightBrightness;
     doc["clock_brightness"] = settings.clockBrightness;
     doc["background_brightness"] = settings.backgroundBrightness;
+    doc["rain_brightness"] = settings.rainBrightness;
     doc["city_speed"] = settings.citySpeed;
+    doc["rain_speed"] = settings.rainSpeed;
     doc["theme"] = settings.theme;
     doc["theme_name"] = retro::themeName(settings.theme);
     doc["use_24h"] = settings.use24Hour;
