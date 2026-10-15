@@ -486,6 +486,7 @@ int _samples_per_cc = 4; // 3 or 4
 const uint32_t* _palette;
 DRAM_ATTR uint32_t _ntsc_palette_phase180[256];
 volatile bool _ntsc_color_enabled = true;
+volatile uint8_t _ntsc_burst_phase_quarters = 0;
 
 float _sample_rate;
 
@@ -770,18 +771,18 @@ void video_init(VideoStandard standard)
                 // color lock when burst and active chroma are explicitly
                 // phase-rotated together on alternate scanlines.
                 const bool phase180 = (_line_counter & 1) != 0;
+                const uint8_t phaseBase =
+                    (uint8_t)((_ntsc_burst_phase_quarters + (phase180 ? 2 : 0)) & 3U);
+                const int16_t amp = BLANKING_LEVEL / 2;
+                const int16_t wave[4] = { amp, 0, (int16_t)-amp, 0 };
+
                 for (i = _hsync; i < _hsync + (4*10); i += 4) {
                     #if COLORBURST
                         if (_ntsc_color_enabled) {
-                            line[i+1] = BLANKING_LEVEL;
-                            line[i+3] = BLANKING_LEVEL;
-                            if (!phase180) {
-                                line[i+0] = BLANKING_LEVEL + BLANKING_LEVEL/2;
-                                line[i+2] = BLANKING_LEVEL - BLANKING_LEVEL/2;
-                            } else {
-                                line[i+0] = BLANKING_LEVEL - BLANKING_LEVEL/2;
-                                line[i+2] = BLANKING_LEVEL + BLANKING_LEVEL/2;
-                            }
+                            line[i+0] = BLANKING_LEVEL + wave[(phaseBase + 0) & 3U];
+                            line[i+1] = BLANKING_LEVEL + wave[(phaseBase + 1) & 3U];
+                            line[i+2] = BLANKING_LEVEL + wave[(phaseBase + 2) & 3U];
+                            line[i+3] = BLANKING_LEVEL + wave[(phaseBase + 3) & 3U];
                         } else {
                             line[i+1] = BLANKING_LEVEL;
                             line[i+0] = BLANKING_LEVEL;
