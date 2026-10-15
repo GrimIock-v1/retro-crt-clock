@@ -36,7 +36,7 @@ static constexpr uint32_t HEALTH_LOG_INTERVAL_MS = 5UL * 60UL * 1000UL;
 
 static constexpr int BRIDGE_API_VERSION = 3;
 static constexpr int SETTINGS_VERSION = 4;
-static constexpr const char* FIRMWARE_VERSION = "3.13.4-2275p5";
+static constexpr const char* FIRMWARE_VERSION = "3.13.4-2275p6";
 static constexpr const char* DEFAULT_BRIDGE_URL =
     "http://crt-clock-bridge.ultramagnus.ca/status";
 
@@ -95,7 +95,8 @@ enum VideoIsolationMode : uint8_t {
     VIDEO_TEST_FREEZE = 1,
     VIDEO_TEST_RENDER_ONLY = 2,
     VIDEO_TEST_SWAP_ONLY = 3,
-    VIDEO_TEST_WIFI_OFF = 4
+    VIDEO_TEST_WIFI_OFF = 4,
+    VIDEO_TEST_PALETTE = 5
 };
 
 VideoIsolationMode videoTestMode = VIDEO_TEST_NONE;
@@ -366,6 +367,7 @@ static const char* videoTestModeName(VideoIsolationMode mode) {
         case VIDEO_TEST_RENDER_ONLY: return "RENDER_ONLY";
         case VIDEO_TEST_SWAP_ONLY: return "SWAP_ONLY";
         case VIDEO_TEST_WIFI_OFF: return "WIFI_OFF";
+        case VIDEO_TEST_PALETTE: return "PALETTE";
         default: return "NONE";
     }
 }
@@ -706,6 +708,9 @@ static void handleApiVideoTest() {
     } else if (mode == "wifi") {
         queueVideoIsolationTest(VIDEO_TEST_WIFI_OFF,
                                 "WiFi-off test queued for 30 seconds. The web page will temporarily disconnect while composite scanout continues.");
+    } else if (mode == "palette") {
+        queueVideoIsolationTest(VIDEO_TEST_PALETTE,
+                                "NTSC palette test queued for 30 seconds. Photograph the labeled 0-F swatches.");
     } else {
         sendApiMessage(false, "Unknown video test mode.", 400);
     }
@@ -1174,6 +1179,38 @@ static void captureVideoTestScene() {
     videoTestScene = scene;
 }
 
+static void prepareNtscPaletteTestFrame() {
+    graphics.setHue(0);
+    graphics.begin(0);
+    backend.fillRect(0, 0, retro::SCREEN_W, retro::SCREEN_H, 0);
+
+    retro::drawTextFx(backend, 16, 10, "NTSC PALETTE 0-F", retro::SCALE_115, 48, 0);
+    retro::drawTextFx(backend, 16, 24, "PHOTO THIS SCREEN", retro::SCALE_090, 28, 0);
+
+    static const char labels[] = "0123456789ABCDEF";
+    for (int hue = 0; hue < 16; ++hue) {
+        const int col = hue & 3;
+        const int row = hue >> 2;
+        const int x = 18 + col * 79;
+        const int y = 45 + row * 43;
+
+        char label[2] = { labels[hue], 0 };
+        graphics.setHue(0);
+        retro::drawTextFx(backend, x, y - 10, label, retro::SCALE_090, 40, 0);
+
+        // Two useful luminance levels per hue. This shows both the hue itself
+        // and whether dark colors collapse toward black on this particular CRT.
+        backend.fillRectPalette(x, y, 48, 24, (uint8_t)((hue << 4) | 0x0A));
+        backend.fillRectPalette(x + 50, y, 18, 24, (uint8_t)((hue << 4) | 0x0E));
+    }
+
+    graphics.setHue(0);
+    retro::drawTextFx(backend, 16, 220, "LEFT=MED  RIGHT=BRIGHT", retro::SCALE_090, 28, 0);
+
+    preparedFrameWantsColor = true;
+    presentPreparedBackbuffer();
+}
+
 static void prepareSwapOnlyBuffers() {
     // Put the same frozen scene in BOTH framebuffers. Once this preparation is
     // complete, the test loop performs only graphics.end() + framebuffer
@@ -1196,6 +1233,9 @@ static void beginVideoIsolationTest(VideoIsolationMode mode) {
     if (mode == VIDEO_TEST_SWAP_ONLY) {
         Serial.println("VIDEO ISOLATION: preparing two identical framebuffers for SWAP_ONLY test...");
         prepareSwapOnlyBuffers();
+    } else if (mode == VIDEO_TEST_PALETTE) {
+        Serial.println("VIDEO ISOLATION: showing NTSC palette calibration for 30 seconds...");
+        prepareNtscPaletteTestFrame();
     }
 
     videoTestUntil = millis() + VIDEO_ISOLATION_TEST_MS;
@@ -1255,7 +1295,9 @@ static void serviceVideoIsolationTest(uint32_t now) {
         return;
     }
 
-    if (videoTestMode == VIDEO_TEST_FREEZE || videoTestMode == VIDEO_TEST_WIFI_OFF) return;
+    if (videoTestMode == VIDEO_TEST_FREEZE ||
+        videoTestMode == VIDEO_TEST_WIFI_OFF ||
+        videoTestMode == VIDEO_TEST_PALETTE) return;
     if (now - videoTestLastStepAt < VIDEO_ISOLATION_STEP_MS) return;
     videoTestLastStepAt = now;
 
