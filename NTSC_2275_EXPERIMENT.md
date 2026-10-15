@@ -105,3 +105,23 @@ actual hue mapping and dark-color behavior of this Sony, allowing Moonlit Cabin
 to be tuned intentionally rather than by guessing palette indices.
 
 Firmware identifies this pass as `3.13.4-2275p6`.
+
+
+## Pass 7: automatic burst-phase sweep
+
+The p6 palette recording showed that all 16 nominal hue codes were decoding into
+a compressed/distorted subset on the Sony: strong cyan/blue and violet, some
+yellow/olive, but no convincing green and no real red/orange. A Cabin-only hue
+remap therefore cannot recover the intended palette.
+
+Pass 7 adds an automatic 16-second burst-phase calibration:
+- phase 0 degrees for ~4 seconds,
+- phase 90 degrees for ~4 seconds,
+- phase 180 degrees for ~4 seconds,
+- phase 270 degrees for ~4 seconds.
+
+Each screen retains the labeled 0-F palette. The phase switch is applied at the
+same VBlank handoff used by the test framebuffer. Grayscale themes remain true
+monochrome and are unaffected.
+
+Firmware identifies this pass as `3.13.4-2275p7`.
