@@ -90,3 +90,18 @@ Pass 5 therefore:
 - keeps Moonlit Cabin at the stronger 90% chroma setting.
 
 Firmware identifies this pass as `3.13.4-2275p5`.
+
+
+## Pass 6: CRT palette calibration
+
+The p5 hardware result established that low-level timing should stop changing:
+- grayscale themes are excellent with 227.5 timing and colorburst disabled,
+- Moonlit Cabin has stable color lock but the intended palette does not map
+  cleanly on the Sony (blue/yellow/brown visible, expected greens missing).
+
+Pass 6 adds a 30-second labeled NTSC palette screen to the web diagnostics UI.
+It shows hues 0-F at medium and bright luminance. A single CRT photo gives the
+actual hue mapping and dark-color behavior of this Sony, allowing Moonlit Cabin
+to be tuned intentionally rather than by guessing palette indices.
+
+Firmware identifies this pass as `3.13.4-2275p6`.
