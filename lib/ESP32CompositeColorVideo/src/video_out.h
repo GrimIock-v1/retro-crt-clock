@@ -485,6 +485,7 @@ int _line_width;
 int _samples_per_cc = 4; // 3 or 4
 const uint32_t* _palette;
 DRAM_ATTR uint32_t _ntsc_palette_phase180[256];
+volatile bool _ntsc_color_enabled = true;
 
 float _sample_rate;
 
@@ -777,14 +778,21 @@ void video_init(VideoStandard standard)
                 const bool phase180 = (_line_counter & 1) != 0;
                 for (i = _hsync; i < _hsync + (4*10); i += 4) {
                     #if COLORBURST
-                        line[i+1] = BLANKING_LEVEL;
-                        line[i+3] = BLANKING_LEVEL;
-                        if (!phase180) {
-                            line[i+0] = BLANKING_LEVEL + BLANKING_LEVEL/2;
-                            line[i+2] = BLANKING_LEVEL - BLANKING_LEVEL/2;
+                        if (_ntsc_color_enabled) {
+                            line[i+1] = BLANKING_LEVEL;
+                            line[i+3] = BLANKING_LEVEL;
+                            if (!phase180) {
+                                line[i+0] = BLANKING_LEVEL + BLANKING_LEVEL/2;
+                                line[i+2] = BLANKING_LEVEL - BLANKING_LEVEL/2;
+                            } else {
+                                line[i+0] = BLANKING_LEVEL - BLANKING_LEVEL/2;
+                                line[i+2] = BLANKING_LEVEL + BLANKING_LEVEL/2;
+                            }
                         } else {
-                            line[i+0] = BLANKING_LEVEL - BLANKING_LEVEL/2;
-                            line[i+2] = BLANKING_LEVEL + BLANKING_LEVEL/2;
+                            line[i+1] = BLANKING_LEVEL;
+                            line[i+0] = BLANKING_LEVEL;
+                            line[i+3] = BLANKING_LEVEL;
+                            line[i+2] = BLANKING_LEVEL;
                         }
                     #else
                         line[i+1] = BLANKING_LEVEL;
