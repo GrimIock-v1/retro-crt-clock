@@ -54,3 +54,8 @@ inline void retroApplySoftNtscPalette(uint8_t chromaPercent = 60) {
 inline void retroSetNtscColorEnabled(bool enabled) {
     RawCompositeVideoBlitter::_ntsc_color_enabled = enabled;
 }
+
+
+inline void retroSetNtscBurstPhase(uint8_t quarterCycles) {
+    RawCompositeVideoBlitter::_ntsc_burst_phase_quarters = quarterCycles & 3U;
+}
