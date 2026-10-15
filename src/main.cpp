@@ -36,7 +36,7 @@ static constexpr uint32_t HEALTH_LOG_INTERVAL_MS = 5UL * 60UL * 1000UL;
 
 static constexpr int BRIDGE_API_VERSION = 3;
 static constexpr int SETTINGS_VERSION = 4;
-static constexpr const char* FIRMWARE_VERSION = "3.13.1";
+static constexpr const char* FIRMWARE_VERSION = "3.13.2";
 static constexpr const char* DEFAULT_BRIDGE_URL =
     "http://crt-clock-bridge.ultramagnus.ca/status";
 
@@ -110,6 +110,7 @@ uint32_t videoBlankWaitTimeouts = 0;
 uint32_t lastRenderDiagCacheAt = 0;
 bool cachedDiagWifiConnected = false;
 int cachedDiagRssi = -127;
+char cachedDiagIp[16] = "--";
 uint32_t cachedDiagFreeHeap = 0;
 uint32_t cachedDiagLargestHeap = 0;
 
@@ -385,6 +386,13 @@ static void refreshRenderDiagnosticCache(bool force = false) {
     lastRenderDiagCacheAt = now;
     cachedDiagWifiConnected = WiFi.status() == WL_CONNECTED;
     cachedDiagRssi = cachedDiagWifiConnected ? WiFi.RSSI() : -127;
+    if (cachedDiagWifiConnected) {
+        const IPAddress ip = WiFi.localIP();
+        snprintf(cachedDiagIp, sizeof(cachedDiagIp), "%u.%u.%u.%u",
+                 ip[0], ip[1], ip[2], ip[3]);
+    } else {
+        strlcpy(cachedDiagIp, "--", sizeof(cachedDiagIp));
+    }
     cachedDiagFreeHeap = ESP.getFreeHeap();
     cachedDiagLargestHeap = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
 }
@@ -400,6 +408,7 @@ static void populateSceneDiagnosticsFromCache() {
     scene.diagHttpLastMs = 0;
     scene.diagHttpMaxMs = 0;
     scene.diagRssi = cachedDiagRssi;
+    strlcpy(scene.diagIp, cachedDiagIp, sizeof(scene.diagIp));
     scene.diagWifiStressActive = false;
 }
 
