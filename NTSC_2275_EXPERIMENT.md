@@ -36,3 +36,22 @@ Pass 2 therefore:
 - rebuilds the alternate palette after the 60% soft-chroma palette is installed.
 
 The firmware identifies this pass as `3.13.4-2275p2`.
+
+
+## Pass 3: theme-aware monochrome/color
+
+The p2 photos showed that the Sony was decoding some chroma in Moonlit Cabin
+(the blue/cyan mountain palette was visible), but grayscale themes again showed
+some false-color fringe and several low-saturation Cabin hues were collapsing.
+
+Pass 3 therefore keeps the p2 227.5 timing + line-phase color handling, but:
+- disables NTSC colorburst entirely for Rich Cityscape, Retro RPG, Digital Rain,
+  and the diagnostics screen,
+- enables colorburst only for Moonlit Cabin,
+- raises the softened color palette from 60% to 90% chroma so greens, browns,
+  warm windows, and blues separate more clearly in the color theme.
+
+The CRT should therefore treat grayscale themes as real monochrome composite,
+even with its CHROMA control left at the normal position.
+
+Firmware identifies this pass as `3.13.4-2275p3`.
