@@ -313,7 +313,7 @@ RETRO_INLINE void drawClock(G& g, int xOffset, int yOffset,
     const int timeX = (SCREEN_W - timeW) / 2 + xOffset;
     const int timeY = 94 + yOffset;
 
-    drawTextFx(g, timeX, timeY, timeText, timeScale, c, 0);
+    drawCabinSafeTextFx(g, timeX, timeY, timeText, timeScale, c);
 
     if (!use24Hour) {
         const uint16_t suffixScale = SCALE_155;
@@ -1504,6 +1504,18 @@ RETRO_INLINE void drawCabinHouse(G& g, const SceneData& d) {
 }
 
 template <typename G>
+RETRO_INLINE void drawCabinSafeTextFx(G& g, int x, int y, const char* text,
+                                      uint16_t scale, uint8_t c) {
+    // A faint one-pixel horizontal shoulder acts like a tiny luma low-pass
+    // filter. It keeps the pixel-art face intact while reducing the strongest
+    // black/white transitions that composite decoders often misread as color.
+    const uint8_t shoulder = c > 18 ? (uint8_t)(c / 3) : c;
+    drawTextFx(g, x - 1, y, text, scale, shoulder, 0);
+    drawTextFx(g, x + 1, y, text, scale, shoulder, 0);
+    drawTextFx(g, x, y, text, scale, c, 0);
+}
+
+template <typename G>
 RETRO_INLINE void drawCabinClock(G& g, const SceneData& d, int dx, int dy, uint8_t c) {
     char timeText[8];
     if (d.use24Hour) {
@@ -1525,9 +1537,9 @@ RETRO_INLINE void drawCabinClock(G& g, const SceneData& d, int dx, int dy, uint8
 
     if (!d.use24Hour) {
         const uint16_t suffixScale = SCALE_135;
-        drawTextFx(g, timeX + timeW + 3, timeY + 26,
-                   d.pm ? "PM" : "AM", suffixScale,
-                   c > 14 ? c - 14 : c, 0);
+        drawCabinSafeTextFx(g, timeX + timeW + 3, timeY + 26,
+                            d.pm ? "PM" : "AM", suffixScale,
+                            c > 14 ? c - 14 : c);
     }
 }
 
@@ -1562,7 +1574,7 @@ RETRO_INLINE void drawMoonlitCabinTheme(G& g, const SceneData& d, const SceneCac
     int dx = 0, dy = 0;
     burnInDrift(d, dx, dy);
 
-    drawTextFx(g, 13 + dx, 17 + dy, cache.text.dateText, SCALE_115, secondaryLum, 0);
+    drawCabinSafeTextFx(g, 13 + dx, 17 + dy, cache.text.dateText, SCALE_115, secondaryLum);
 
     drawWeatherIcon(g, 244 + dx, 14 + dy,
                     d.weatherValid ? d.condition : CONDITION_UNKNOWN,
@@ -1581,8 +1593,8 @@ RETRO_INLINE void drawMoonlitCabinTheme(G& g, const SceneData& d, const SceneCac
 
     drawCabinClock(g, d, dx, dy, clockLum);
 
-    drawTextFx(g, 35 + dx, 169 + dy, "NEXT", SCALE_090, secondaryLum, 0);
-    drawTextFx(g, 35 + dx, 183 + dy, cache.text.eventText, SCALE_135, primaryLum, 0);
+    drawCabinSafeTextFx(g, 35 + dx, 169 + dy, "NEXT", SCALE_090, secondaryLum);
+    drawCabinSafeTextFx(g, 35 + dx, 183 + dy, cache.text.eventText, SCALE_135, primaryLum);
     if (d.calendarValid && !d.calendarFresh) {
         const int eventW = textWidthFx(cache.text.eventText, SCALE_135);
         int markerX = 35 + dx + eventW + 3;
