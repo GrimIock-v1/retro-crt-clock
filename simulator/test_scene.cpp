@@ -112,10 +112,12 @@ int main() {
     assert(retro::THEME_DAYLIGHT_RESERVED == 1);
     assert(retro::THEME_RPG == 2);
     assert(retro::THEME_DIGITAL_RAIN == 3);
+    assert(retro::THEME_MOONLIT_CABIN == 4);
     assert(strcmp(retro::themeName(retro::THEME_CITY), "Rich Cityscape") == 0);
     assert(strcmp(retro::themeName(retro::THEME_DAYLIGHT_RESERVED), "Rich Cityscape") == 0);
     assert(strcmp(retro::themeName(retro::THEME_RPG), "Retro RPG") == 0);
     assert(strcmp(retro::themeName(retro::THEME_DIGITAL_RAIN), "Digital Rain") == 0);
+    assert(strcmp(retro::themeName(retro::THEME_MOONLIT_CABIN), "Moonlit Cabin") == 0);
 
     return 0;
 }
