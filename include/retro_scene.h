@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include "arcade_bitmap_font.h"
 #include "weather_icon_bitmaps.h"
+#include "moonlit_cabin_art.h"
 
 #if defined(__GNUC__)
 #define RETRO_INLINE inline __attribute__((always_inline))
@@ -54,6 +55,25 @@ enum Condition : uint8_t {
     CONDITION_STORM = 11
 };
 
+enum ClockTheme : uint8_t {
+    THEME_CITY = 0,
+    // ID 1 was the removed Daylight theme. Keep the numeric slot reserved so
+    // previously persisted theme IDs never shift to a different design.
+    THEME_DAYLIGHT_RESERVED = 1,
+    THEME_RPG = 2,
+    THEME_DIGITAL_RAIN = 3,
+    THEME_MOONLIT_CABIN = 4
+};
+
+RETRO_INLINE const char* themeName(uint8_t theme) {
+    switch (theme) {
+        case THEME_RPG: return "Retro RPG";
+        case THEME_DIGITAL_RAIN: return "Digital Rain";
+        case THEME_MOONLIT_CABIN: return "Moonlit Cabin";
+        default: return "Rich Cityscape";
+    }
+}
+
 struct SceneData {
     bool timeValid = false;
     bool timeFromNtp = false;
@@ -89,12 +109,18 @@ struct SceneData {
     uint16_t driftIntervalMinutes = 30; // 1..120
     uint8_t nightBrightnessPct = 75;  // 10..100
     uint8_t clockBrightnessPct = 100; // 25..100
-    uint8_t backgroundBrightnessPct = 100; // 0..100
+    uint8_t backgroundBrightnessPct = 100; // Cityscape brightness, 0..100
+    uint8_t rainBrightnessPct = 100;       // Digital Rain brightness, 0..100
+    uint8_t cabinBrightnessPct = 100;      // Moonlit Cabin scenery, 0..100
+    uint8_t cabinTwinkle = 2;              // 0=off, 1=low, 2=normal
+    uint8_t cabinGlow = 2;                 // 0=off, 1=low, 2=normal
     bool use24Hour = false;
     bool fahrenheit = false;
     bool showWeatherText = true;
     bool showDayBar = true;
     uint8_t citySpeed = 2; // 0=off, 1=slow, 2=normal, 3=fast
+    uint8_t rainSpeed = 2; // 0=off, 1=slow, 2=normal, 3=fast
+    uint8_t theme = THEME_CITY;
 
     uint32_t frameMs = 0;
     bool wifiConnected = true;
@@ -112,6 +138,7 @@ struct SceneData {
     uint32_t diagHttpLastMs = 0;
     uint32_t diagHttpMaxMs = 0;
     int16_t diagRssi = -127;
+    char diagIp[16] = "--";
     bool diagWifiStressActive = false;
 };
 
@@ -797,13 +824,21 @@ RETRO_INLINE void drawStars(G& g, uint32_t frameMs, uint8_t bgPct, uint8_t night
     }
 }
 
-RETRO_INLINE uint32_t cityFrameMs(const SceneData& d) {
-    switch (d.citySpeed) {
+RETRO_INLINE uint32_t animationFrameMs(uint32_t frameMs, uint8_t speed) {
+    switch (speed) {
         case 0: return 0;
-        case 1: return d.frameMs / 2U;
-        case 3: return d.frameMs * 2U;
-        default: return d.frameMs;
+        case 1: return frameMs / 2U;
+        case 3: return frameMs * 2U;
+        default: return frameMs;
     }
+}
+
+RETRO_INLINE uint32_t cityFrameMs(const SceneData& d) {
+    return animationFrameMs(d.frameMs, d.citySpeed);
+}
+
+RETRO_INLINE uint32_t rainFrameMs(const SceneData& d) {
+    return animationFrameMs(d.frameMs, d.rainSpeed);
 }
 
 template <typename G>
@@ -919,8 +954,9 @@ RETRO_INLINE void drawDiagnostics(G& g, const SceneData& d) {
              (unsigned long)(d.diagLargestHeap / 1024U));
     drawTextFx(g, 18, 50, line, SCALE_090, 32, 0);
 
-    snprintf(line, sizeof(line), "WIFI %s RSSI %d",
-             d.wifiConnected ? "OK" : "NO", (int)d.diagRssi);
+    snprintf(line, sizeof(line), "WIFI %s %dDB IP %s",
+             d.wifiConnected ? "OK" : "NO", (int)d.diagRssi,
+             d.wifiConnected ? d.diagIp : "--");
     drawTextFx(g, 18, 64, line, SCALE_090, 32, 0);
 
     snprintf(line, sizeof(line), "TIME %s BRDG %s",
@@ -946,12 +982,655 @@ RETRO_INLINE void drawDiagnostics(G& g, const SceneData& d) {
     drawTextFx(g, 18, 211, "HOLD 3 SEC RESET WIFI", SCALE_090, 30, 0);
 }
 
+
+template <typename G>
+RETRO_INLINE void drawRpgFrame(G& g, int x, int y, int w, int h, uint8_t c) {
+    rect(g, x, y, w, h, c, 1);
+    // Chunky ornamental corners inspired by classic RPG status windows.
+    fill(g, x - 2, y + 3, 3, 1, c);
+    fill(g, x + 3, y - 2, 1, 3, c);
+    fill(g, x + w - 1, y + 3, 3, 1, c);
+    fill(g, x + w - 4, y - 2, 1, 3, c);
+    fill(g, x - 2, y + h - 4, 3, 1, c);
+    fill(g, x + 3, y + h - 1, 1, 3, c);
+    fill(g, x + w - 1, y + h - 4, 3, 1, c);
+    fill(g, x + w - 4, y + h - 1, 1, 3, c);
+}
+
+template <typename G>
+RETRO_INLINE void drawRpgDivider(G& g, int y, uint8_t c) {
+    fill(g, 22, y, 74, 1, c);
+    fill(g, 240, y, 74, 1, c);
+    fill(g, 100, y - 1, 4, 3, c);
+    fill(g, 232, y - 1, 4, 3, c);
+}
+
+template <typename G>
+RETRO_INLINE void drawRpgClock(G& g, const SceneData& d, int dx, int dy, uint8_t c) {
+    char timeText[8];
+    if (d.use24Hour) {
+        snprintf(timeText, sizeof(timeText), "%02d%c%02d",
+                 d.hour24, ((d.second & 1) == 0) ? ':' : ' ', d.minute);
+    } else {
+        snprintf(timeText, sizeof(timeText), "%d%c%02d",
+                 d.hour12, ((d.second & 1) == 0) ? ':' : ' ', d.minute);
+    }
+
+    const uint16_t sc = 1408; // 5.5x, leaves room for the RPG information panels.
+    const int w = textWidthFx(timeText, sc);
+    const int x = (SCREEN_W - w) / 2 + dx;
+    const int y = 82 + dy;
+    drawTextFx(g, x, y, timeText, sc, c, 0);
+
+    if (!d.use24Hour) {
+        drawTextFx(g, x + w + 4, y + 27, d.pm ? "PM" : "AM",
+                   SCALE_135, c > 12 ? c - 12 : c, 0);
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawRpgDayBar(G& g, uint32_t secondsToday, uint8_t frameLum, uint8_t fillLum) {
+    const int labelX = 23;
+    const int y = 211;
+    drawTextFx(g, labelX, 211, "DAY", SCALE_090, frameLum, 0);
+
+    const int x = 58;
+    const int w = 254;
+    const int h = 10;
+    int progress = (int)(((uint64_t)secondsToday * (uint64_t)(w - 6)) / 86400ULL);
+    progress = clampInt(progress, 0, w - 6);
+
+    rect(g, x, y, w, h, frameLum, 1);
+    fill(g, x + 3, y + 3, w - 6, h - 6, 5);
+    if (progress > 0) fill(g, x + 3, y + 3, progress, h - 6, fillLum);
+    if (progress > 0) fill(g, x + 2 + progress, y + 2, 2, h - 4, fillLum);
+}
+
+template <typename G>
+RETRO_INLINE void drawRpgTheme(G& g, const SceneData& d, const SceneCache& cache) {
+    fill(g, 0, 0, SCREEN_W, SCREEN_H, 0);
+
+    const uint8_t night = nightLevel(d);
+    const uint8_t clockLum = scaleLuma(dimForNight(54, night, d.nightBrightnessPct), d.clockBrightnessPct);
+    const uint8_t primaryLum = dimForNight(47, night, d.nightBrightnessPct);
+    const uint8_t secondaryLum = dimForNight(36, night, d.nightBrightnessPct);
+    const uint8_t frameLum = dimForNight(24, night, d.nightBrightnessPct);
+    const uint8_t quietLum = dimForNight(27, night, d.nightBrightnessPct);
+
+    int dx = 0, dy = 0;
+    burnInDrift(d, dx, dy);
+
+    // Intentionally restrained background. The reference direction is used for
+    // RPG framing and information hierarchy rather than a complex landscape.
+    const uint32_t twinkle = d.frameMs / 5000U;
+    for (int i = 0; i < 9; ++i) {
+        const uint32_t h = mix32((uint32_t)i * 2246822519U ^ twinkle);
+        if ((h & 3U) != 0U) pixel(g, 28 + (int)(h % 278U), 66 + (int)((h >> 8) % 66U), 7);
+    }
+
+    // Top status panel: weather at left, date at right.
+    drawRpgFrame(g, 16, 15, 304, 48, frameLum);
+    fill(g, 167, 20, 1, 38, frameLum > 3 ? frameLum - 3 : frameLum);
+    drawTextFx(g, 27 + dx, 22 + dy, "WEATHER", SCALE_090, quietLum, 0);
+    drawWeatherIcon(g, 27 + dx, 34 + dy,
+                    d.weatherValid ? d.condition : CONDITION_UNKNOWN,
+                    primaryLum);
+    drawTemperatureCached(g, 153 + dx, 35 + dy,
+                          cache.text.tempText, cache.text.tempUnit, primaryLum);
+    if (d.showWeatherText) {
+        drawWeatherDescriptor(g, 65 + dx, 49 + dy,
+                              d.weatherValid ? d.condition : CONDITION_UNKNOWN,
+                              quietLum);
+    }
+
+    drawTextFx(g, 181 + dx, 22 + dy, "DATE", SCALE_090, quietLum, 0);
+    drawTextFx(g, 181 + dx, 39 + dy, cache.text.dateText, SCALE_115, primaryLum, 0);
+
+    drawRpgDivider(g, 72, frameLum);
+    drawTextFx(g, 145, 68, "TIME", SCALE_090, quietLum, 0);
+    drawRpgClock(g, d, dx, dy, clockLum);
+    drawRpgDivider(g, 142, frameLum);
+
+    // Framed meeting panel is the main translation from the supplied RPG
+    // reference: clear label, ornamental border, large readable event.
+    drawRpgFrame(g, 22, 154, 292, 43, frameLum);
+    fill(g, 32, 150, 101, 9, 0);
+    drawTextFx(g, 34 + dx, 150 + dy, "NEXT MEETING", SCALE_090, secondaryLum, 0);
+    drawTextFx(g, 36 + dx, 171 + dy, cache.text.eventText, SCALE_135, primaryLum, 0);
+
+    if (d.calendarValid && !d.calendarFresh) {
+        drawTextFx(g, 298 + dx, 171 + dy, "*", SCALE_090, quietLum, 0);
+    }
+
+    if (d.showDayBar) drawRpgDayBar(g, d.secondsToday, frameLum, primaryLum);
+
+    if (!d.wifiConnected) {
+        drawTextFx(g, 250, 202, "OFFLINE", SCALE_090, quietLum, 0);
+    }
+}
+
+
+
+RETRO_INLINE char digitalRainChar(uint32_t seed) {
+    static constexpr char glyphs[] = "01ABCDEF+-/:*";
+    return glyphs[mix32(seed) % (sizeof(glyphs) - 1)];
+}
+
+template <typename G>
+RETRO_INLINE void drawDigitalRainBackdrop(G& g, const SceneData& d) {
+    static constexpr int COLUMN_COUNT = 24;
+    static constexpr int COLUMN_SPACING = 14;
+    static constexpr int ROW_SPACING = 9;
+    static constexpr int WRAP_ROWS = 30;
+
+    const uint32_t animMs = rainFrameMs(d);
+    const uint8_t night = nightLevel(d);
+    const uint8_t bgPct = d.rainBrightnessPct;
+
+    for (int col = 0; col < COLUMN_COUNT; ++col) {
+        const uint32_t seed = mix32(0x4D415452U ^ (uint32_t)col * 2654435761U);
+        const uint32_t periodMs = 500U + ((seed >> 7) % 1101U);
+        const uint32_t step = periodMs ? animMs / periodMs : 0U;
+        const int headRow = (int)((step + ((seed >> 18) % WRAP_ROWS)) % WRAP_ROWS);
+        const int trail = 10 + (int)((seed >> 28) & 7U);
+        const int x = 4 + col * COLUMN_SPACING;
+
+        for (int k = 0; k < trail; ++k) {
+            int row = headRow - k;
+            while (row < 0) row += WRAP_ROWS;
+            const int y = row * ROW_SPACING - 16;
+            if (y < 7 || y > SCREEN_H - 10) continue;
+
+            const uint32_t cellSeed = mix32(seed ^ (uint32_t)row * 2246822519U ^ step * 3266489917U);
+
+            // Keep the streams continuous enough to read as cascading code
+            // while retaining a few gaps so they do not become solid stripes.
+            // The lead glyph always draws; only about one trail cell in eight
+            // is skipped.
+            if (k > 0 && (cellSeed & 7U) == 0U) continue;
+
+            uint8_t baseLum = 12;
+            if (k == 0) baseLum = 45;
+            else if (k == 1) baseLum = 35;
+            else if (k == 2) baseLum = 30;
+            else if (k <= 5) baseLum = 24;
+            else if (k <= 9) baseLum = 18;
+            else if (k <= 13) baseLum = 15;
+
+            // Keep the rain clearly visible behind the clock instead of
+            // suppressing it almost completely. The hero time still wins by
+            // limiting only the brightest code through this region.
+            if (x >= 22 && x <= 312 && y >= 78 && y <= 145 && baseLum > 18) {
+                baseLum = 18;
+            }
+
+            const uint8_t lum = dimForNight(scaleLuma(baseLum, bgPct), night, d.nightBrightnessPct);
+            if (!lum) continue;
+
+            drawGlyphFx(g, x, y, digitalRainChar(cellSeed), SCALE_090, lum, 0);
+        }
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawDigitalRainDayBar(G& g, uint32_t secondsToday,
+                                        uint8_t frameLum, uint8_t fillLum) {
+    drawTextFx(g, 13, 218, "DAY", SCALE_090, frameLum, 0);
+
+    static constexpr int x = 47;
+    static constexpr int y = 219;
+    static constexpr int segments = 18;
+    static constexpr int segmentW = 13;
+    static constexpr int gap = 2;
+    static constexpr int h = 6;
+
+    const int filled = clampInt((int)(((uint64_t)secondsToday * segments) / 86400ULL), 0, segments);
+    for (int i = 0; i < segments; ++i) {
+        const int sx = x + i * (segmentW + gap);
+        rect(g, sx, y, segmentW, h, frameLum, 1);
+        if (i < filled) fill(g, sx + 2, y + 2, segmentW - 4, h - 4, fillLum);
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawDigitalRainTheme(G& g, const SceneData& d, const SceneCache& cache) {
+    fill(g, 0, 0, SCREEN_W, SCREEN_H, 0);
+    drawDigitalRainBackdrop(g, d);
+
+    const uint8_t night = nightLevel(d);
+    const uint8_t clockLum = scaleLuma(dimForNight(54, night, d.nightBrightnessPct), d.clockBrightnessPct);
+    const uint8_t primaryLum = dimForNight(47, night, d.nightBrightnessPct);
+    const uint8_t secondaryLum = dimForNight(38, night, d.nightBrightnessPct);
+    const uint8_t frameLum = dimForNight(17, night, d.nightBrightnessPct);
+    const uint8_t quietLum = dimForNight(28, night, d.nightBrightnessPct);
+
+    int dx = 0, dy = 0;
+    burnInDrift(d, dx, dy);
+
+    // Keep the clock information floating directly over the rain. No HUD
+    // boxes or opaque panels: the background is the visual identity here.
+
+    drawTextFx(g, 13 + dx, 18 + dy, cache.text.dateText, SCALE_135, secondaryLum, 0);
+
+    drawWeatherIcon(g, 241 + dx, 15 + dy,
+                    d.weatherValid ? d.condition : CONDITION_UNKNOWN,
+                    primaryLum);
+    drawTemperatureCached(g, 322 + dx, 18 + dy,
+                          cache.text.tempText, cache.text.tempUnit, primaryLum);
+
+    char unitText[2] = {cache.text.tempUnit, 0};
+    const int tempLeft = (322 + dx) -
+        (textWidthFx(cache.text.tempText, SCALE_135) + 9 + textWidthFx(unitText, SCALE_135));
+    if (d.showWeatherText) {
+        drawWeatherDescriptor(g, tempLeft, 31 + dy,
+                              d.weatherValid ? d.condition : CONDITION_UNKNOWN,
+                              quietLum);
+    }
+    if (d.weatherValid && !d.weatherFresh) {
+        drawTextFx(g, 316 + dx, 42 + dy, "*", SCALE_090, quietLum, 0);
+    }
+
+    drawClock(g, dx, dy, d.hour12, d.hour24, d.minute, d.second,
+              d.pm, d.use24Hour, clockLum);
+
+    drawTextFx(g, 39 + dx, 157 + dy, "NEXT", SCALE_100, secondaryLum, 0);
+    drawTextFx(g, 39 + dx, 174 + dy, cache.text.eventText, SCALE_155, primaryLum, 0);
+    if (d.calendarValid && !d.calendarFresh) {
+        const int eventW = textWidthFx(cache.text.eventText, SCALE_155);
+        int markerX = 39 + dx + eventW + 3;
+        if (markerX > 295) markerX = 295;
+        drawTextFx(g, markerX, 173 + dy, "*", SCALE_090, quietLum, 0);
+    }
+
+    drawNormalStatus(g, d, dx, dy, quietLum);
+    if (d.showDayBar) drawDigitalRainDayBar(g, d.secondsToday, frameLum, primaryLum);
+}
+
+
+static constexpr uint8_t CABIN_HUE_NEUTRAL = 0;
+static constexpr uint8_t CABIN_HUE_SKY = 9;
+static constexpr uint8_t CABIN_HUE_ICE = 10;
+static constexpr uint8_t CABIN_HUE_MOUNTAIN = 8;
+static constexpr uint8_t CABIN_HUE_TREE = 12;
+static constexpr uint8_t CABIN_HUE_WOOD = 3;
+static constexpr uint8_t CABIN_HUE_WARM = 15;
+
+RETRO_INLINE uint8_t cabinLuma(const SceneData& d, uint8_t base) {
+    return dimForNight(scaleLuma(base, d.cabinBrightnessPct),
+                       nightLevel(d), d.nightBrightnessPct);
+}
+
+RETRO_INLINE uint8_t cabinPaletteValue(const SceneData& d, uint8_t raw) {
+    const uint8_t hue = raw & 0xF0;
+    const uint8_t sourceLum = raw & 0x0F;
+    if (sourceLum == 0) return hue;
+
+    int pct = d.cabinBrightnessPct;
+    const int night = nightLevel(d);
+    const int nightPct = 100 - ((100 - d.nightBrightnessPct) * night) / 255;
+    pct = (pct * nightPct) / 100;
+
+    int lum = (sourceLum * pct + 50) / 100;
+    if (pct > 0 && lum == 0) lum = 1;
+    lum = clampInt(lum, 0, 15);
+    return (uint8_t)(hue | (uint8_t)lum);
+}
+
+template <typename G>
+RETRO_INLINE void drawCabinAuthoredBackground(G& g, const SceneData& d) {
+    size_t i = 0;
+    int x = 0;
+    int y = 0;
+
+    while (i + 1 < moonlit_cabin_art::RLE_SIZE && y < moonlit_cabin_art::HEIGHT) {
+        const uint8_t count = moonlit_cabin_art::RLE[i++];
+        const uint8_t raw = moonlit_cabin_art::RLE[i++];
+
+        if (count == 0) {
+            x = 0;
+            ++y;
+            continue;
+        }
+
+        g.fillRectPalette(x * 2, y * 2, count * 2, 2, cabinPaletteValue(d, raw));
+        x += count;
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawCabinWindowGlow(G& g, const SceneData& d) {
+    uint8_t windowLum = 0;
+    if (d.cabinGlow == 1) {
+        windowLum = cabinLuma(d, 30);
+    } else if (d.cabinGlow >= 2) {
+        const uint32_t bucket = d.frameMs / 2600U;
+        windowLum = cabinLuma(d, (bucket & 1U) ? 41 : 35);
+    }
+    if (!windowLum) return;
+
+    g.setHue(CABIN_HUE_WARM);
+    fill(g, 278, 194, 10, 10, windowLum);
+    fill(g, 298, 194, 10, 10, windowLum > 4 ? windowLum - 4 : windowLum);
+
+    g.setHue(CABIN_HUE_WOOD);
+    const uint8_t frameLum = cabinLuma(d, 8);
+    fill(g, 282, 194, 2, 10, frameLum);
+    fill(g, 278, 198, 10, 2, frameLum);
+    fill(g, 302, 194, 2, 10, frameLum);
+    fill(g, 298, 198, 10, 2, frameLum);
+}
+
+template <typename G, size_t N>
+RETRO_INLINE void drawCabinRidge(G& g,
+                                 const int16_t (&xs)[N],
+                                 const int16_t (&ys)[N],
+                                 int baseY, uint8_t hue, uint8_t lum) {
+    g.setHue(hue);
+    for (size_t i = 0; i + 1 < N; ++i) {
+        const int x0 = xs[i];
+        const int x1 = xs[i + 1];
+        const int y0 = ys[i];
+        const int y1 = ys[i + 1];
+        const int span = x1 - x0;
+        if (span <= 0) continue;
+
+        for (int x = x0; x < x1; x += 2) {
+            const int y = y0 + ((y1 - y0) * (x - x0)) / span;
+            fill(g, x, y, 2, baseY - y, lum);
+        }
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawCabinPine(G& g, int x, int baseY, int height, uint8_t lum) {
+    g.setHue(CABIN_HUE_TREE);
+    const int top = baseY - height;
+    const uint8_t trunkLum = lum > 5 ? lum - 4 : lum;
+
+    fill(g, x - 1, top + height / 3, 3, height * 2 / 3, trunkLum);
+
+    const int crownH = height - 6;
+    for (int row = 0; row < 5; ++row) {
+        const int y = top + 4 + row * (crownH / 5);
+        const int half = 4 + row * (height / 18 + 2);
+
+        // A stepped, filled branch silhouette reads much more like pixel art
+        // on the CRT than the old thin horizontal-line tree.
+        fill(g, x - half, y, half * 2 + 1, 3, lum);
+        if (row > 0) {
+            fill(g, x - half + 3, y - 4, (half - 3) * 2 + 1, 3, lum);
+        }
+        if (row > 1) {
+            fill(g, x - half + 6, y - 7, (half - 6) * 2 + 1, 2, lum);
+        }
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawCabinStars(G& g, const SceneData& d) {
+    static const uint16_t xs[] = {
+        18,31,46,82,102,121,143,164,186,205,225,249,271,294,317,
+        26,57,92,133,174,214,258,304,74,151,235,287,322,112,278,198
+    };
+    static const uint8_t ys[] = {
+        48,72,36,54,27,67,43,22,58,34,75,45,25,62,39,
+        91,84,95,78,89,70,88,80,16,96,17,101,92,48,53,18
+    };
+    static constexpr int COUNT = sizeof(xs) / sizeof(xs[0]);
+
+    for (int i = 0; i < COUNT; ++i) {
+        const uint32_t seed = mix32(0x53544152U ^ (uint32_t)i * 2654435761U);
+        uint8_t base = 21;
+
+        if (d.cabinTwinkle == 1) {
+            const uint32_t bucket = (d.frameMs + (seed & 2047U)) / 2400U;
+            base = (mix32(seed ^ bucket) & 1U) ? 25 : 18;
+        } else if (d.cabinTwinkle >= 2) {
+            const uint32_t bucket = (d.frameMs + (seed & 2047U)) / 1100U;
+            base = (uint8_t)(17 + ((mix32(seed ^ bucket) >> 5) & 12U));
+        }
+
+        const uint8_t lum = cabinLuma(d, base);
+        g.setHue((i % 7 == 0) ? CABIN_HUE_ICE : CABIN_HUE_NEUTRAL);
+        pixel(g, xs[i], ys[i], lum);
+
+        if (d.cabinTwinkle >= 2 && (i % 8 == 0)) {
+            const uint32_t bucket = (d.frameMs + (seed & 1023U)) / 1700U;
+            if ((mix32(seed ^ bucket) & 3U) == 0U) {
+                const uint8_t sparkle = cabinLuma(d, 33);
+                fill(g, xs[i] - 2, ys[i], 5, 1, sparkle);
+                fill(g, xs[i], ys[i] - 2, 1, 5, sparkle);
+            }
+        }
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawCabinMoon(G& g, const MoonCache& moon, const SceneData& d) {
+    static constexpr int cx = 65;
+    static constexpr int cy = 65;
+
+    // Draw the unlit portion almost black so the moon reads as a phase rather
+    // than a yellow disc sitting on a blue patch.
+    g.setHue(CABIN_HUE_NEUTRAL);
+    const uint8_t darkLum = cabinLuma(d, 2);
+    for (int i = 0; i < MOON_RADIUS * 2 + 1; ++i) {
+        if (moon.diskWidth[i] > 0) {
+            const int dy = i - MOON_RADIUS;
+            fill(g, cx + moon.diskLeft[i], cy + dy, moon.diskWidth[i], 1, darkLum);
+        }
+    }
+
+    g.setHue(CABIN_HUE_WARM);
+    const uint8_t litLum = cabinLuma(d, 44);
+    for (int i = 0; i < MOON_RADIUS * 2 + 1; ++i) {
+        if (moon.litWidth[i] > 0) {
+            const int dy = i - MOON_RADIUS;
+            fill(g, cx + moon.litLeft[i], cy + dy, moon.litWidth[i], 1, litLum);
+        }
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawCabinSnowDetails(G& g, const SceneData& d) {
+    g.setHue(CABIN_HUE_ICE);
+    const uint8_t hi = cabinLuma(d, 22);
+    const uint8_t mid = cabinLuma(d, 15);
+
+    // Main peak, deliberately irregular rather than a symmetric triangle.
+    fill(g, 214, 61, 10, 3, hi);
+    fill(g, 209, 66, 17, 3, hi);
+    fill(g, 204, 71, 12, 3, mid);
+    fill(g, 219, 72, 14, 3, hi);
+    fill(g, 199, 77, 11, 3, mid);
+    fill(g, 227, 78, 10, 3, mid);
+    fill(g, 211, 82, 8, 3, mid);
+
+    // Secondary caps and rocky highlights.
+    fill(g, 91, 86, 8, 2, mid);
+    fill(g, 87, 90, 15, 2, mid);
+    fill(g, 150, 83, 8, 2, mid);
+    fill(g, 146, 87, 14, 2, mid);
+    fill(g, 276, 87, 8, 2, mid);
+    fill(g, 271, 91, 15, 2, mid);
+}
+
+template <typename G>
+RETRO_INLINE void drawCabinHouse(G& g, const SceneData& d) {
+    const int x = 270;
+    const int y = 169;
+    const int center = x + 25;
+
+    g.setHue(CABIN_HUE_WOOD);
+    fill(g, x + 5, y + 13, 40, 27, cabinLuma(d, 12));
+    fill(g, x + 33, y + 1, 5, 13, cabinLuma(d, 10));
+
+    // Correct roof: narrow at the ridge, widening toward the eaves.
+    g.setHue(CABIN_HUE_MOUNTAIN);
+    for (int row = 0; row <= 12; row += 2) {
+        const int half = 4 + row * 2;
+        fill(g, center - half, y + row, half * 2 + 1, 2, cabinLuma(d, 13));
+    }
+    fill(g, x - 3, y + 12, 56, 3, cabinLuma(d, 14));
+
+    // Small snow/cool highlight along one roof plane.
+    g.setHue(CABIN_HUE_ICE);
+    fill(g, center - 5, y + 1, 10, 2, cabinLuma(d, 18));
+    fill(g, center - 10, y + 5, 14, 2, cabinLuma(d, 15));
+    fill(g, center - 15, y + 9, 17, 2, cabinLuma(d, 13));
+
+    uint8_t windowLum = 0;
+    if (d.cabinGlow == 1) {
+        windowLum = cabinLuma(d, 30);
+    } else if (d.cabinGlow >= 2) {
+        const uint32_t bucket = d.frameMs / 2600U;
+        windowLum = cabinLuma(d, (bucket & 1U) ? 41 : 35);
+    }
+
+    if (windowLum) {
+        g.setHue(CABIN_HUE_WARM);
+        fill(g, x + 11, y + 23, 8, 8, windowLum);
+        fill(g, x + 31, y + 23, 8, 8, windowLum > 4 ? windowLum - 4 : windowLum);
+
+        g.setHue(CABIN_HUE_WOOD);
+        fill(g, x + 15, y + 23, 1, 8, cabinLuma(d, 7));
+        fill(g, x + 11, y + 27, 8, 1, cabinLuma(d, 7));
+        fill(g, x + 35, y + 23, 1, 8, cabinLuma(d, 7));
+        fill(g, x + 31, y + 27, 8, 1, cabinLuma(d, 7));
+    }
+
+    g.setHue(CABIN_HUE_WOOD);
+    fill(g, x + 22, y + 25, 7, 15, cabinLuma(d, 7));
+}
+
+template <typename G>
+RETRO_INLINE void drawCabinSafeTextFx(G& g, int x, int y, const char* text,
+                                      uint16_t scale, uint8_t c) {
+    // A faint one-pixel horizontal shoulder acts like a tiny luma low-pass
+    // filter. It keeps the pixel-art face intact while reducing the strongest
+    // black/white transitions that composite decoders often misread as color.
+    const uint8_t shoulder = c > 18 ? (uint8_t)(c / 3) : c;
+    drawTextFx(g, x - 1, y, text, scale, shoulder, 0);
+    drawTextFx(g, x + 1, y, text, scale, shoulder, 0);
+    drawTextFx(g, x, y, text, scale, c, 0);
+}
+
+template <typename G>
+RETRO_INLINE void drawCabinClock(G& g, const SceneData& d, int dx, int dy, uint8_t c) {
+    char timeText[8];
+    if (d.use24Hour) {
+        snprintf(timeText, sizeof(timeText), "%02d%c%02d",
+                 d.hour24, ((d.second & 1) == 0) ? ':' : ' ', d.minute);
+    } else {
+        snprintf(timeText, sizeof(timeText), "%d%c%02d",
+                 d.hour12, ((d.second & 1) == 0) ? ':' : ' ', d.minute);
+    }
+
+    // Keep the clock large, but lower it into the dark lake band so it no
+    // longer obscures the authored mountain silhouettes.
+    const uint16_t timeScale = 1344; // 5.25x
+    const int timeW = textWidthFx(timeText, timeScale);
+    const int timeX = (SCREEN_W - timeW) / 2 + dx;
+    const int timeY = 115 + dy;
+
+    drawCabinSafeTextFx(g, timeX, timeY, timeText, timeScale, c);
+
+    if (!d.use24Hour) {
+        const uint16_t suffixScale = SCALE_135;
+        drawCabinSafeTextFx(g, timeX + timeW + 3, timeY + 26,
+                            d.pm ? "PM" : "AM", suffixScale,
+                            c > 14 ? c - 14 : c);
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawMoonlitCabinScene(G& g, const SceneData& d, const SceneCache& cache) {
+    // V3.13.3 moves the scene from generated geometry to authored 168x120
+    // pixel art. The small indexed backdrop is RLE-compressed in flash and
+    // scales 2x with nearest-neighbor blocks to preserve the intended CRT look.
+    drawCabinAuthoredBackground(g, d);
+
+    // Live elements remain procedural so the scene is still a clock, not a
+    // static wallpaper.
+    drawCabinStars(g, d);
+    drawCabinMoon(g, cache.moon, d);
+    drawCabinWindowGlow(g, d);
+}
+
+template <typename G>
+RETRO_INLINE void drawMoonlitCabinTheme(G& g, const SceneData& d, const SceneCache& cache) {
+    drawMoonlitCabinScene(g, d, cache);
+
+    // UI stays neutral over the colored scene.
+    g.setHue(CABIN_HUE_NEUTRAL);
+
+    const uint8_t night = nightLevel(d);
+    const uint8_t clockLum = scaleLuma(dimForNight(54, night, d.nightBrightnessPct),
+                                       d.clockBrightnessPct);
+    const uint8_t primaryLum = dimForNight(48, night, d.nightBrightnessPct);
+    const uint8_t secondaryLum = dimForNight(39, night, d.nightBrightnessPct);
+    const uint8_t quietLum = dimForNight(27, night, d.nightBrightnessPct);
+
+    int dx = 0, dy = 0;
+    burnInDrift(d, dx, dy);
+
+    drawCabinSafeTextFx(g, 13 + dx, 17 + dy, cache.text.dateText, SCALE_115, secondaryLum);
+
+    drawWeatherIcon(g, 244 + dx, 14 + dy,
+                    d.weatherValid ? d.condition : CONDITION_UNKNOWN,
+                    primaryLum);
+    drawTemperatureCached(g, 322 + dx, 17 + dy,
+                          cache.text.tempText, cache.text.tempUnit, primaryLum);
+
+    char unitText[2] = {cache.text.tempUnit, 0};
+    const int tempLeft = (322 + dx) -
+        (textWidthFx(cache.text.tempText, SCALE_135) + 9 + textWidthFx(unitText, SCALE_135));
+    if (d.showWeatherText) {
+        drawWeatherDescriptor(g, tempLeft, 30 + dy,
+                              d.weatherValid ? d.condition : CONDITION_UNKNOWN,
+                              quietLum);
+    }
+
+    drawCabinClock(g, d, dx, dy, clockLum);
+
+    drawCabinSafeTextFx(g, 35 + dx, 169 + dy, "NEXT", SCALE_090, secondaryLum);
+    drawCabinSafeTextFx(g, 35 + dx, 183 + dy, cache.text.eventText, SCALE_135, primaryLum);
+    if (d.calendarValid && !d.calendarFresh) {
+        const int eventW = textWidthFx(cache.text.eventText, SCALE_135);
+        int markerX = 35 + dx + eventW + 3;
+        if (markerX > 238) markerX = 238;
+        drawTextFx(g, markerX, 182 + dy, "*", SCALE_090, quietLum, 0);
+    }
+
+    drawNormalStatus(g, d, dx, dy, quietLum);
+    if (d.showDayBar) drawDayHorizon(g, d.secondsToday);
+
+    g.setHue(CABIN_HUE_NEUTRAL);
+}
+
 template <typename G>
 RETRO_INLINE void render(G& g, const SceneData& d, SceneCache& cache) {
+    g.setHue(0);
     prepareSceneCache(cache, d);
 
     if (d.diagnosticsMode) {
         drawDiagnostics(g, d);
+        if (d.wifiResetPercent > 0) drawResetOverlay(g, d.wifiResetPercent);
+        return;
+    }
+
+    if (d.timeValid && d.theme == THEME_RPG) {
+        drawRpgTheme(g, d, cache);
+        if (d.wifiResetPercent > 0) drawResetOverlay(g, d.wifiResetPercent);
+        return;
+    }
+    if (d.timeValid && d.theme == THEME_DIGITAL_RAIN) {
+        drawDigitalRainTheme(g, d, cache);
+        if (d.wifiResetPercent > 0) drawResetOverlay(g, d.wifiResetPercent);
+        return;
+    }
+    if (d.timeValid && d.theme == THEME_MOONLIT_CABIN) {
+        drawMoonlitCabinTheme(g, d, cache);
         if (d.wifiResetPercent > 0) drawResetOverlay(g, d.wifiResetPercent);
         return;
     }

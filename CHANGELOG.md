@@ -1,5 +1,130 @@
 # V3.11.0 - Browser OTA firmware updates
 
+## V3.13.4 - CRT-safe chroma and text edges
+
+- Reduced NTSC chroma amplitude to 60% of the upstream palette while preserving average luminance, producing calmer colors with less chroma energy for the CRT decoder to separate.
+- Kept grayscale palette entries unchanged.
+- Added a one-pixel low-luma horizontal shoulder to Moonlit Cabin text so the sharpest black/white transitions are slightly band-limited before composite encoding.
+- Applied the text-edge treatment to the Cabin hero time, AM/PM, date, NEXT label, and event text.
+- Left the low-level NTSC line timing unchanged on this branch; the 227.5-color-clock timing change is isolated on `experiment/ntsc-2275`.
+
+
+## V3.13.3 - Authored Moonlit Cabin artwork
+
+- Replaced the procedurally generated Moonlit Cabin mountains/trees/house with an authored 168x120 indexed pixel-art backdrop scaled 2x to the 336x240 CRT framebuffer.
+- Added a compact row-RLE art asset in flash rather than another framebuffer or runtime bitmap allocation.
+- Added direct raw composite-palette drawing for the authored backdrop so each pixel can carry its intended hue and luminance.
+- Redesigned the composition around a much larger dark-sky area, layered mountain silhouettes with hand-placed snow facets, a distant treeline, open dark lake, restrained reflections, framed foreground trees, and a properly shaped cabin.
+- Kept the real lunar phase, twinkling stars, and cabin-window glow as live overlays rather than baking them into the artwork.
+- Lowered and slightly reduced the hero clock and calendar information so the scenery reads as a composed scene instead of large colored geometry behind the text.
+- Existing themes continue to use the normal hue/brightness renderer.
+
+
+## V3.13.2 - Diagnostics IP
+
+- Added the current WiFi IP address to the CRT diagnostics screen.
+- Reused the existing cached diagnostics refresh path so the renderer does not query WiFi directly.
+
+
+## V3.13.1 - Moonlit Cabin art pass
+
+- Reworked the Moonlit Cabin scene after first CRT hardware review.
+- Replaced the bright full-screen blue background with a near-black sky so the palette is closer to the original concept and less saturated on the Trinitron.
+- Replaced the three simple triangular mountains with three irregular layered ridge profiles and hand-placed snow/facet details.
+- Added a darker lake/negative-space band so the clock reads against the scene instead of fighting the mountain body.
+- Improved pine silhouettes and added a distant treeline for more depth.
+- Corrected the cabin roof geometry so it widens downward from the ridge instead of appearing upside down.
+- Added a small roof highlight, refined the warm windows, and kept the real lunar phase and star-twinkle animation.
+- Reduced the hero clock slightly and moved the calendar treatment to give the landscape more room.
+
+
+## V3.13.0 - Moonlit Cabin color theme
+
+- Added Moonlit Cabin as theme ID 4 without changing the existing persisted theme IDs.
+- Added a limited-color composite scene with a dark blue sky, layered blue mountains, evergreen silhouettes, lake shimmer, a small warm-lit cabin, and a neutral high-contrast information overlay.
+- Reused the existing lunar calculation so the large pixel moon reflects the actual current phase and waxing/waning direction.
+- Added deterministic star twinkle with Off, Low, and Normal settings plus occasional larger sparkle frames.
+- Added optional cabin window glow with Off, Low, and Normal settings.
+- Added Moonlit Cabin theme controls for scene brightness, star twinkle, and cabin glow.
+- Added hue support to the ESP rendering backend while keeping Cityscape, Retro RPG, and Digital Rain neutral/grayscale.
+- Added a color-aware native simulator preview path for the new theme.
+- Kept all Moonlit Cabin drawing helpers inline and avoided new framebuffers, bitmap decoding, or dynamic scene allocations.
+
+
+## V3.12.7 - Theme-aware web controls
+
+- Reorganized Display settings into shared General controls plus a contextual Theme Options section.
+- Rich Cityscape now exposes City brightness and City movement only when that theme is selected.
+- Digital Rain now has its own Rain brightness and Rain speed settings instead of reusing Cityscape controls.
+- Retro RPG currently shows no theme-specific controls rather than irrelevant sliders.
+- Added separate persisted Digital Rain brightness/speed values and migrated existing V2 settings so upgrades keep the same visual values.
+- Kept clock brightness, night brightness, burn-in drift, time format, temperature, weather descriptor, and day bar as shared controls.
+
+
+## V3.12.6 - Digital Rain refinement
+
+- Removed the HUD boxes and opaque panel behind the clock information so date, weather, time, and next event float directly over the rain.
+- Increased rain trails from roughly 4-7 glyphs to 10-17 glyphs.
+- Increased trail density by skipping only about one in eight trailing cells.
+- Brightened the trailing glyphs substantially while keeping the lead glyph brightest.
+- Relaxed clock-area rain suppression so code remains visible behind the hero time without overpowering it.
+- Left the segmented day-progress meter intact.
+
+
+## V3.12.5 - Remove Daylight theme
+
+- Removed the Daylight renderer and its web selector option because it was too visually similar to Rich Cityscape.
+- Kept the old numeric theme ID reserved so persisted theme values do not shift to another design.
+- Any previously saved Daylight selection now falls back to Rich Cityscape.
+- Removed the Daylight simulator preview while retaining Rich Cityscape, Retro RPG, and Digital Rain.
+
+
+## V3.12.4 - Digital Rain theme
+
+- Added a fourth selectable clock design: Digital Rain.
+- Added 24 deterministic falling-code streams with independent 500-1600 ms step periods, sparse trails, bright lead glyphs, and dim trailing glyphs.
+- Kept the hero clock visually dominant by reducing rain brightness through the central time region.
+- Added terminal/HUD-style framing for date, weather, clock, next meeting, and a segmented day-progress meter.
+- Reused the existing background-animation speed control for rain speed and renamed its web label from City animation to Background animation.
+- Added a native simulator preview and persisted theme-ID coverage for Digital Rain.
+- No extra framebuffer, image decoding, or dynamic allocation was added.
+
+
+## V3.12.3 - WiFi isolation diagnostic
+
+- Added a 30-second WiFi-off video isolation test.
+- The test freezes the displayed framebuffer, stops the local web listener, disables the ESP32 WiFi radio, and leaves only composite scanout running.
+- WiFi station mode and the web listener restart automatically after the test.
+- This helps distinguish renderer/framebuffer issues from WiFi interrupt, RF, or power-noise effects on composite output.
+
+
+## V3.12.2 - Video bootstrap fix
+
+- Fixed a startup deadlock introduced by V3.12.1 fresh-VBlank synchronization.
+- The first framebuffer handoff now occurs immediately while the composite library has no active framebuffer attached.
+- Fresh-VBlank synchronization is used only after scanout has been bootstrapped.
+
+
+## V3.12.1 - Fresh VBlank presentation
+
+- Changed framebuffer presentation to wait for the start of a fresh NTSC blanking interval.
+- If rendering finishes while already in VBlank, the clock now waits through the next active frame instead of swapping near the end of blanking.
+- A VBlank timeout now drops that presentation rather than risking a framebuffer handoff during active scanout.
+- This specifically targets brief horizontal tears/blips that became easier to expose with faster alternate theme renderers.
+
+
+## V3.12.0 - Selectable display themes
+
+- Added three selectable clock designs: Rich Cityscape, Daylight, and Retro RPG.
+- Preserved the existing Rich Cityscape renderer as the default/fallback theme.
+- Added a lightweight Daylight scene with sun, clouds, birds, and restrained two-layer urban silhouettes.
+- Added a Retro RPG layout inspired by classic framed status screens: ornamental information panels, large hero time, framed next-meeting panel, and RPG-style day meter.
+- Kept the RPG background deliberately simple so the information framing, not a complex landscape, carries the design.
+- Theme selection is persisted in NVS and participates in the existing 60-second web preview/revert flow.
+- Added theme name to the web status panel and API.
+- Added native simulator scenes for the Daylight and Retro RPG themes.
+
+
 - Added streamed `.bin` firmware upload to the existing local web UI.
 - Added upload progress, update-slot reporting, validation/error responses, and automatic reboot after a successful update.
 - Pauses scene rendering, bridge refreshes, diagnostics sampling, and video-isolation work during flash writes while leaving the current CRT framebuffer displayed.

@@ -98,5 +98,26 @@ int main() {
     d.citySpeed = 3;
     assert(retro::cityFrameMs(d) == 20000);
 
+    d.rainSpeed = 0;
+    assert(retro::rainFrameMs(d) == 0);
+    d.rainSpeed = 1;
+    assert(retro::rainFrameMs(d) == 5000);
+    d.rainSpeed = 2;
+    assert(retro::rainFrameMs(d) == 10000);
+    d.rainSpeed = 3;
+    assert(retro::rainFrameMs(d) == 20000);
+
+    // Theme IDs stay compact and stable because they are persisted in NVS.
+    assert(retro::THEME_CITY == 0);
+    assert(retro::THEME_DAYLIGHT_RESERVED == 1);
+    assert(retro::THEME_RPG == 2);
+    assert(retro::THEME_DIGITAL_RAIN == 3);
+    assert(retro::THEME_MOONLIT_CABIN == 4);
+    assert(strcmp(retro::themeName(retro::THEME_CITY), "Rich Cityscape") == 0);
+    assert(strcmp(retro::themeName(retro::THEME_DAYLIGHT_RESERVED), "Rich Cityscape") == 0);
+    assert(strcmp(retro::themeName(retro::THEME_RPG), "Retro RPG") == 0);
+    assert(strcmp(retro::themeName(retro::THEME_DIGITAL_RAIN), "Digital Rain") == 0);
+    assert(strcmp(retro::themeName(retro::THEME_MOONLIT_CABIN), "Moonlit Cabin") == 0);
+
     return 0;
 }
