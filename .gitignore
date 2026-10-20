@@ -6,3 +6,6 @@ simulator/preview*.ppm
 .DS_Store
 
 bridge/data/
+
+.clock-host
+artwork/**/build/
