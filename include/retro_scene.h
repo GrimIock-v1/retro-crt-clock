@@ -7,6 +7,7 @@
 #include "arcade_bitmap_font.h"
 #include "weather_icon_bitmaps.h"
 #include "moonlit_cabin_art.h"
+#include "artwork_theme_registry.h"
 
 #if defined(__GNUC__)
 #define RETRO_INLINE inline __attribute__((always_inline))
@@ -65,12 +66,42 @@ enum ClockTheme : uint8_t {
     THEME_MOONLIT_CABIN = 4
 };
 
+RETRO_INLINE const artwork_theme::Asset* artworkTheme(uint8_t theme) {
+    return artwork_registry::find(theme);
+}
+
+RETRO_INLINE bool isArtworkTheme(uint8_t theme) {
+    return theme == THEME_MOONLIT_CABIN || artworkTheme(theme) != nullptr;
+}
+
+RETRO_INLINE bool isValidTheme(uint8_t theme) {
+    return theme == THEME_CITY ||
+           theme == THEME_RPG ||
+           theme == THEME_DIGITAL_RAIN ||
+           theme == THEME_MOONLIT_CABIN ||
+           artworkTheme(theme) != nullptr;
+}
+
+RETRO_INLINE bool themeUsesColor(uint8_t theme) {
+    return isArtworkTheme(theme);
+}
+
+RETRO_INLINE uint8_t themeBurstPhase(uint8_t theme) {
+    if (theme == THEME_MOONLIT_CABIN) return 2;
+    const artwork_theme::Asset* asset = artworkTheme(theme);
+    return asset ? (asset->burstPhaseQuarters & 3U) : 0;
+}
+
 RETRO_INLINE const char* themeName(uint8_t theme) {
     switch (theme) {
         case THEME_RPG: return "Retro RPG";
         case THEME_DIGITAL_RAIN: return "Digital Rain";
         case THEME_MOONLIT_CABIN: return "Moonlit Cabin";
-        default: return "Rich Cityscape";
+        case THEME_CITY: return "Rich Cityscape";
+        default: {
+            const artwork_theme::Asset* asset = artworkTheme(theme);
+            return asset ? asset->name : "Rich Cityscape";
+        }
     }
 }
 
@@ -1639,6 +1670,285 @@ RETRO_INLINE void drawMoonlitCabinTheme(G& g, const SceneData& d, const SceneCac
     g.setHue(CABIN_HUE_NEUTRAL);
 }
 
+
+RETRO_INLINE uint8_t artworkPaletteValue(const SceneData& d,
+                                         const artwork_theme::Asset& asset,
+                                         uint8_t raw) {
+    const uint8_t sourceHue = (raw >> 4) & 0x0F;
+    const uint8_t sourceLum = raw & 0x0F;
+    const uint8_t hue = asset.hueMap[sourceHue] & 0x0F;
+    if (sourceLum == 0) return (uint8_t)(hue << 4);
+
+    int pct = d.cabinBrightnessPct;
+    const int night = nightLevel(d);
+    const int nightPct = 100 - ((100 - d.nightBrightnessPct) * night) / 255;
+    pct = (pct * nightPct) / 100;
+
+    int lum = (sourceLum * pct + 50) / 100;
+    if (pct > 0 && lum == 0) lum = 1;
+    lum = clampInt(lum, 0, 15);
+    return (uint8_t)((hue << 4) | (uint8_t)lum);
+}
+
+template <typename G>
+RETRO_INLINE void drawArtworkBackground(G& g, const SceneData& d,
+                                        const artwork_theme::Asset& asset) {
+    size_t i = 0;
+    int x = 0;
+    int y = 0;
+
+    while (i + 1 < asset.rleSize && y < SCREEN_H) {
+        const uint8_t count = asset.rle[i++];
+        const uint8_t raw = asset.rle[i++];
+
+        if (count == 0) {
+            x = 0;
+            ++y;
+            continue;
+        }
+
+        g.fillRectPalette(x, y, count, 1, artworkPaletteValue(d, asset, raw));
+        x += count;
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawArtworkStars(G& g, const SceneData& d,
+                                   const artwork_theme::Asset& asset) {
+    if ((asset.features & artwork_theme::FEATURE_STARS) == 0) return;
+
+    // Generate stable candidate positions from a per-theme seed. No star list
+    // or decoded mask is allocated in RAM.
+    for (uint8_t i = 0; i < 40; ++i) {
+        const uint32_t seed = mix32(asset.starSeed ^ (uint32_t)i * 2654435761U);
+        const uint16_t x = (uint16_t)(seed % SCREEN_W);
+        const uint16_t y = (uint16_t)((seed >> 16) % 150U);
+        if (!artwork_theme::skyAllows(asset, x, y)) continue;
+
+        uint8_t base = 21;
+        if (d.cabinTwinkle == 1) {
+            const uint32_t bucket = (d.frameMs + (seed & 2047U)) / 2400U;
+            base = (mix32(seed ^ bucket) & 1U) ? 25 : 18;
+        } else if (d.cabinTwinkle >= 2) {
+            const uint32_t bucket = (d.frameMs + (seed & 2047U)) / 1100U;
+            base = (uint8_t)(17 + ((mix32(seed ^ bucket) >> 5) & 12U));
+        }
+
+        g.setHue((i % 7U == 0U) ? asset.iceHue : asset.neutralHue);
+        pixel(g, x, y, cabinLuma(d, base));
+
+        if (d.cabinTwinkle >= 2 && (i % 10U == 0U)) {
+            const uint32_t bucket = (d.frameMs + (seed & 1023U)) / 1700U;
+            if ((mix32(seed ^ bucket) & 3U) == 0U) {
+                const uint8_t sparkle = cabinLuma(d, 31);
+                for (int sx = (int)x - 1; sx <= (int)x + 1; ++sx) {
+                    if (sx >= 0 && sx < SCREEN_W &&
+                        artwork_theme::skyAllows(asset, (uint16_t)sx, y)) {
+                        pixel(g, sx, y, sparkle);
+                    }
+                }
+                for (int sy = (int)y - 1; sy <= (int)y + 1; ++sy) {
+                    if (sy >= 0 && sy < SCREEN_H &&
+                        artwork_theme::skyAllows(asset, x, (uint16_t)sy)) {
+                        pixel(g, x, sy, sparkle);
+                    }
+                }
+            }
+        }
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawArtworkMoon(G& g, const MoonCache& moon,
+                                  const SceneData& d,
+                                  const artwork_theme::Asset& asset) {
+    if ((asset.features & artwork_theme::FEATURE_MOON) == 0) return;
+
+    const int cx = asset.moonX;
+    const int cy = asset.moonY;
+    const uint8_t darkLum = cabinLuma(d, 2);
+    const uint8_t litLum = cabinLuma(d, 44);
+
+    // Per-pixel clipping is intentional here. It is only ~700 mask checks and
+    // guarantees a low moon remains behind mountain/tree silhouettes.
+    for (int i = 0; i < MOON_RADIUS * 2 + 1; ++i) {
+        const int yy = cy + i - MOON_RADIUS;
+        if (yy < 0 || yy >= SCREEN_H) continue;
+
+        if (moon.diskWidth[i] > 0) {
+            g.setHue(asset.neutralHue);
+            const int left = cx + moon.diskLeft[i];
+            for (int xx = left; xx < left + moon.diskWidth[i]; ++xx) {
+                if (xx >= 0 && xx < SCREEN_W &&
+                    artwork_theme::skyAllows(asset, (uint16_t)xx, (uint16_t)yy)) {
+                    pixel(g, xx, yy, darkLum);
+                }
+            }
+        }
+
+        if (moon.litWidth[i] > 0) {
+            g.setHue(asset.warmHue);
+            const int left = cx + moon.litLeft[i];
+            for (int xx = left; xx < left + moon.litWidth[i]; ++xx) {
+                if (xx >= 0 && xx < SCREEN_W &&
+                    artwork_theme::skyAllows(asset, (uint16_t)xx, (uint16_t)yy)) {
+                    pixel(g, xx, yy, litLum);
+                }
+            }
+        }
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawArtworkLights(G& g, const SceneData& d,
+                                    const artwork_theme::Asset& asset) {
+    if ((asset.features & artwork_theme::FEATURE_LIGHTS) == 0 ||
+        d.cabinGlow == 0 || asset.windowSpanCount == 0) {
+        return;
+    }
+
+    for (uint16_t i = 0; i < asset.windowSpanCount; ++i) {
+        const artwork_theme::WindowSpan& span = asset.windowSpans[i];
+        uint8_t lum = cabinLuma(d, 30);
+
+        if (d.cabinGlow >= 2) {
+            const uint32_t offset = (uint32_t)span.component * 977U;
+            const uint32_t bucket = (d.frameMs + offset) / 2300U;
+            const uint32_t flicker = mix32(asset.starSeed ^ offset ^ bucket);
+            lum = cabinLuma(d, (uint8_t)(32 + (flicker & 9U)));
+        }
+
+        g.setHue(asset.warmHue);
+        fill(g, span.x, span.y, span.len, 1, lum);
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawArtworkDayBar(G& g, uint32_t secondsToday, int y) {
+    const int x = 40;
+    const int w = 256;
+    const int innerX = x + 2;
+    const int innerY = y + 1;
+    const int innerW = w - 4;
+    int progress = (int)(((uint64_t)secondsToday * (uint64_t)innerW) / 86400ULL);
+    progress = clampInt(progress, 0, innerW);
+
+    fill(g, x, y, w, 6, 7);
+    fill(g, innerX, innerY, innerW, 4, 3);
+    if (progress > 0) fill(g, innerX, innerY, progress, 4, 20);
+    if (progress > 0) fill(g, innerX + progress - 1, y, 2, 6, 30);
+}
+
+template <typename G>
+RETRO_INLINE void drawArtworkClock(G& g, const SceneData& d,
+                                   const artwork_theme::Asset& asset,
+                                   int dx, int dy, uint8_t c) {
+    char timeText[8];
+    if (d.use24Hour) {
+        snprintf(timeText, sizeof(timeText), "%02d%c%02d",
+                 d.hour24, ((d.second & 1) == 0) ? ':' : ' ', d.minute);
+    } else {
+        snprintf(timeText, sizeof(timeText), "%d%c%02d",
+                 d.hour12, ((d.second & 1) == 0) ? ':' : ' ', d.minute);
+    }
+
+    const int w = textWidthFx(timeText, asset.layout.clockScale);
+    const int x = (SCREEN_W - w) / 2 + dx;
+    const int y = asset.layout.clockY + dy;
+    drawCabinSafeTextFx(g, x, y, timeText, asset.layout.clockScale, c);
+
+    if (!d.use24Hour) {
+        drawCabinSafeTextFx(g, x + w + 3, y + asset.layout.suffixDy,
+                            d.pm ? "PM" : "AM",
+                            asset.layout.suffixScale,
+                            c > 14 ? c - 14 : c);
+    }
+}
+
+template <typename G>
+RETRO_INLINE void drawGeneratedArtworkTheme(G& g, const SceneData& d,
+                                            const SceneCache& cache,
+                                            const artwork_theme::Asset& asset) {
+    drawArtworkBackground(g, d, asset);
+    drawArtworkStars(g, d, asset);
+    drawArtworkMoon(g, cache.moon, d, asset);
+    drawArtworkLights(g, d, asset);
+
+    g.setHue(asset.neutralHue);
+
+    const uint8_t night = nightLevel(d);
+    const uint8_t clockLum = scaleLuma(dimForNight(54, night, d.nightBrightnessPct),
+                                       d.clockBrightnessPct);
+    const uint8_t primaryLum = dimForNight(48, night, d.nightBrightnessPct);
+    const uint8_t secondaryLum = dimForNight(39, night, d.nightBrightnessPct);
+    const uint8_t quietLum = dimForNight(27, night, d.nightBrightnessPct);
+
+    int dx = 0, dy = 0;
+    burnInDrift(d, dx, dy);
+
+    drawCabinSafeTextFx(g,
+                        asset.layout.dateX + dx,
+                        asset.layout.dateY + dy,
+                        cache.text.dateText,
+                        asset.layout.dateScale,
+                        secondaryLum);
+
+    drawWeatherIcon(g,
+                    asset.layout.weatherIconX + dx,
+                    asset.layout.weatherIconY + dy,
+                    d.weatherValid ? d.condition : CONDITION_UNKNOWN,
+                    primaryLum);
+
+    drawTemperatureCached(g,
+                          asset.layout.tempRightX + dx,
+                          asset.layout.tempY + dy,
+                          cache.text.tempText,
+                          cache.text.tempUnit,
+                          primaryLum);
+
+    char unitText[2] = {cache.text.tempUnit, 0};
+    const int tempLeft = (asset.layout.tempRightX + dx) -
+        (textWidthFx(cache.text.tempText, SCALE_135) + 9 +
+         textWidthFx(unitText, SCALE_135));
+    if (d.showWeatherText) {
+        drawWeatherDescriptor(g,
+                              tempLeft,
+                              asset.layout.weatherDescY + dy,
+                              d.weatherValid ? d.condition : CONDITION_UNKNOWN,
+                              quietLum);
+    }
+
+    drawArtworkClock(g, d, asset, dx, dy, clockLum);
+
+    drawCabinSafeTextFx(g,
+                        asset.layout.eventLabelX + dx,
+                        asset.layout.eventLabelY + dy,
+                        "NEXT",
+                        asset.layout.eventLabelScale,
+                        secondaryLum);
+    drawCabinSafeTextFx(g,
+                        asset.layout.eventX + dx,
+                        asset.layout.eventY + dy,
+                        cache.text.eventText,
+                        asset.layout.eventScale,
+                        primaryLum);
+
+    if (d.calendarValid && !d.calendarFresh) {
+        const int eventW = textWidthFx(cache.text.eventText, asset.layout.eventScale);
+        int markerX = asset.layout.eventX + dx + eventW + 3;
+        if (markerX > asset.layout.eventMaxX) markerX = asset.layout.eventMaxX;
+        drawTextFx(g, markerX, asset.layout.eventY - 1 + dy,
+                   "*", SCALE_090, quietLum, 0);
+    }
+
+    drawNormalStatus(g, d, dx, dy, quietLum);
+    if (d.showDayBar && asset.layout.dayBarY >= 0) {
+        drawArtworkDayBar(g, d.secondsToday, asset.layout.dayBarY);
+    }
+
+    g.setHue(asset.neutralHue);
+}
+
 template <typename G>
 RETRO_INLINE void render(G& g, const SceneData& d, SceneCache& cache) {
     g.setHue(0);
@@ -1664,6 +1974,14 @@ RETRO_INLINE void render(G& g, const SceneData& d, SceneCache& cache) {
         drawMoonlitCabinTheme(g, d, cache);
         if (d.wifiResetPercent > 0) drawResetOverlay(g, d.wifiResetPercent);
         return;
+    }
+    if (d.timeValid) {
+        const artwork_theme::Asset* asset = artworkTheme(d.theme);
+        if (asset) {
+            drawGeneratedArtworkTheme(g, d, cache, *asset);
+            if (d.wifiResetPercent > 0) drawResetOverlay(g, d.wifiResetPercent);
+            return;
+        }
     }
 
     fill(g, 0, 0, SCREEN_W, SCREEN_H, 0);
