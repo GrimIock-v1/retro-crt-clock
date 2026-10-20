@@ -1327,16 +1327,18 @@ RETRO_INLINE void drawCabinWindowGlow(G& g, const SceneData& d) {
     }
     if (!windowLum) return;
 
-    g.setHue(CABIN_HUE_WARM);
-    fill(g, 278, 194, 10, 10, windowLum);
-    fill(g, 298, 194, 10, 10, windowLum > 4 ? windowLum - 4 : windowLum);
-
-    g.setHue(CABIN_HUE_WOOD);
     const uint8_t frameLum = cabinLuma(d, 8);
-    fill(g, 282, 194, 2, 10, frameLum);
-    fill(g, 278, 198, 10, 2, frameLum);
-    fill(g, 302, 194, 2, 10, frameLum);
-    fill(g, 298, 198, 10, 2, frameLum);
+    for (uint8_t i = 0; i < moonlit_cabin_art::WINDOW_COUNT; ++i) {
+        const moonlit_cabin_art::DynamicRect& r = moonlit_cabin_art::WINDOWS[i];
+        const uint8_t thisLum = (i & 1U) && windowLum > 4 ? windowLum - 4 : windowLum;
+
+        g.setHue(CABIN_HUE_WARM);
+        fill(g, r.x, r.y, r.w, r.h, thisLum);
+
+        g.setHue(CABIN_HUE_WOOD);
+        if (r.w >= 4) fill(g, r.x + r.w / 2, r.y, 1, r.h, frameLum);
+        if (r.h >= 4) fill(g, r.x, r.y + r.h / 2, r.w, 1, frameLum);
+    }
 }
 
 template <typename G, size_t N>
@@ -1436,8 +1438,8 @@ RETRO_INLINE void drawCabinStars(G& g, const SceneData& d) {
 
 template <typename G>
 RETRO_INLINE void drawCabinMoon(G& g, const MoonCache& moon, const SceneData& d) {
-    static constexpr int cx = 65;
-    static constexpr int cy = 65;
+    static constexpr int cx = moonlit_cabin_art::MOON_X;
+    static constexpr int cy = moonlit_cabin_art::MOON_Y;
 
     // Draw the unlit portion almost black so the moon reads as a phase rather
     // than a yellow disc sitting on a blue patch.
