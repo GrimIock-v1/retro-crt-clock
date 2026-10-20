@@ -76,6 +76,17 @@ can never be exceeded. The WiFi updater also checks the final compiled
 Very noisy single-pixel artwork compresses poorly and also looks worse over NTSC
 composite, so the flash limit reinforces the visual rules we want anyway.
 
+## Color mode
+
+`theme.json` has a `color` flag.
+
+- `"color": true` enables NTSC colorburst and uses the configured
+  `burst_phase_quarters` plus the 16-entry CRT hue map.
+- `"color": false` keeps the theme on the proven true-monochrome output path.
+
+Use monochrome for artwork that does not genuinely need color. It is cleaner on
+the Sony and avoids spending signal quality on chroma unnecessarily.
+
 ## Masks
 
 ### sky_mask.png
