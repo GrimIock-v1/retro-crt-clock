@@ -1,21 +1,12 @@
 #!/usr/bin/env python3
-"""
-Convert a designer-authored 336x240 PNG into the Moonlit Cabin firmware asset.
+"""Convert one designer-authored 336x240 artwork theme into C++ assets.
 
-The converter maps RGB artwork to a small logical palette, emits row-RLE indexed
-pixels, and creates a 1-bit dynamic-sky mask used by stars/moon overlays.
+This is a build-machine tool. It quantizes RGB artwork, creates the compact
+row-RLE backdrop, packs a 1-bit sky mask, detects independent light regions from
+an optional window mask, and emits flash-resident C++ data.
 
-Usage:
-  python3 tools/convert_background.py \
-      artwork/moonlit_cabin/background.png \
-      --palette artwork/moonlit_cabin/palette.json \
-      --output include/moonlit_cabin_art.h
-
-Optional:
-  --mask artwork/moonlit_cabin/sky_mask.png
-      White/non-zero pixels explicitly allow dynamic stars/moon.
-      If omitted, palette entries marked "dynamic_sky": true are used.
-      Transparent source pixels are also treated as dynamic sky.
+Most users should run tools/build_artwork_themes.py rather than calling this
+file directly.
 """
 
 from __future__ import annotations
