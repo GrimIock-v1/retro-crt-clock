@@ -286,7 +286,19 @@ def main() -> None:
             stats_path.unlink(missing_ok=True)
             estimated = int(stats["estimated_flash_bytes"])
             rle_bytes = int(stats["rle_bytes"])
+            sky_pixel_count = int(stats.get("sky_pixel_count", 0))
             window_span_count = int(stats["window_span_count"])
+            window_component_count = int(stats["window_component_count"])
+
+            dynamic = cfg.get("dynamic", {})
+            if (dynamic.get("stars", False) or dynamic.get("moon", False)) and sky_pixel_count == 0:
+                raise SystemExit(
+                    f"{name}: stars/moon are enabled but the generated sky mask has no white pixels."
+                )
+            if dynamic.get("lights", False) and window_component_count == 0:
+                raise SystemExit(
+                    f"{name}: lights are enabled but no window/light regions were generated."
+                )
 
             if rle_bytes > MAX_RLE_BYTES:
                 raise SystemExit(
