@@ -183,8 +183,7 @@ static void clampSettings(ClockSettings& cfg) {
     cfg.cabinGlow = (uint8_t)clampValue(cfg.cabinGlow, 0, 2);
     cfg.citySpeed = (uint8_t)clampValue(cfg.citySpeed, 0, 3);
     cfg.rainSpeed = (uint8_t)clampValue(cfg.rainSpeed, 0, 3);
-    cfg.theme = (uint8_t)clampValue(cfg.theme, retro::THEME_CITY, retro::THEME_MOONLIT_CABIN);
-    if (cfg.theme == retro::THEME_DAYLIGHT_RESERVED) cfg.theme = retro::THEME_CITY;
+    if (!retro::isValidTheme(cfg.theme)) cfg.theme = retro::THEME_CITY;
     if (!cfg.bridgeUrl[0]) strlcpy(cfg.bridgeUrl, DEFAULT_BRIDGE_URL, sizeof(cfg.bridgeUrl));
     if (!cfg.timezoneRule[0]) strlcpy(cfg.timezoneRule, "PST8PDT,M3.2.0,M11.1.0", sizeof(cfg.timezoneRule));
 }
@@ -310,7 +309,7 @@ static void parseDisplaySettings(ClockSettings& cfg) {
     cfg.cabinGlow = (uint8_t)serverIntArg("cabin_glow", cfg.cabinGlow, 0, 2);
     cfg.citySpeed = (uint8_t)serverIntArg("city_speed", cfg.citySpeed, 0, 3);
     cfg.rainSpeed = (uint8_t)serverIntArg("rain_speed", cfg.rainSpeed, 0, 3);
-    cfg.theme = (uint8_t)serverIntArg("theme", cfg.theme, retro::THEME_CITY, retro::THEME_MOONLIT_CABIN);
+    cfg.theme = (uint8_t)serverIntArg("theme", cfg.theme, 0, 255);
     if (configServer.hasArg("time_format")) cfg.use24Hour = configServer.arg("time_format") == "24";
     if (configServer.hasArg("temperature_unit")) cfg.fahrenheit = configServer.arg("temperature_unit") == "F";
     cfg.weatherText = serverBoolArg("weather_text", cfg.weatherText);
@@ -554,6 +553,33 @@ static void handleFirmwareResult() {
     sendJsonDocument(doc, 400);
 }
 
+static void handleApiThemes() {
+    // Kept separate from /api/settings so ordinary settings reads stay small.
+    // With the enforced build-time cap of 8 optional artwork themes this
+    // response comfortably fits the existing 1100-byte JSON output buffer.
+    StaticJsonDocument<1024> doc;
+    JsonArray themes = doc.createNestedArray("themes");
+
+    auto addTheme = [&](uint8_t id, const char* name, bool artwork) {
+        JsonObject item = themes.createNestedObject();
+        item["id"] = id;
+        item["name"] = name;
+        item["artwork"] = artwork;
+    };
+
+    addTheme(retro::THEME_CITY, "Rich Cityscape", false);
+    addTheme(retro::THEME_RPG, "Retro RPG", false);
+    addTheme(retro::THEME_DIGITAL_RAIN, "Digital Rain", false);
+    addTheme(retro::THEME_MOONLIT_CABIN, "Moonlit Cabin", true);
+
+    for (uint8_t i = 0; i < artwork_registry::COUNT; ++i) {
+        const artwork_theme::Asset& asset = artwork_registry::THEMES[i];
+        addTheme(asset.id, asset.name, true);
+    }
+
+    sendJsonDocument(doc);
+}
+
 static void handleApiSettings() {
     StaticJsonDocument<1024> doc;
     doc["firmware"] = FIRMWARE_VERSION;
@@ -740,6 +766,7 @@ static void startConfigWebServer() {
             configServer.send_P(200, "text/html", WEB_UI_HTML);
         });
         configServer.on("/api/settings", HTTP_GET, handleApiSettings);
+        configServer.on("/api/themes", HTTP_GET, handleApiThemes);
         configServer.on("/api/status", HTTP_GET, handleApiStatus);
         configServer.on("/api/preview", HTTP_POST, handleApiPreview);
         configServer.on("/api/revert", HTTP_POST, handleApiRevert);
@@ -1142,10 +1169,10 @@ static void drawSceneToBackbuffer(const retro::SceneData& frameScene) {
     // change colorburst here: rendering can happen during active scanout.
     preparedFrameWantsColor =
         !frameScene.diagnosticsMode &&
-        frameScene.theme == retro::THEME_MOONLIT_CABIN;
-    // The Sony phase sweep showed 180 degrees gives the best combined palette
-    // for Cabin: strong blues/cyans plus usable warm yellow/orange and olive.
-    preparedFrameBurstPhase = preparedFrameWantsColor ? 2 : 0;
+        retro::themeUsesColor(frameScene.theme);
+    preparedFrameBurstPhase = preparedFrameWantsColor
+        ? retro::themeBurstPhase(frameScene.theme)
+        : 0;
 
     graphics.setHue(0);
     graphics.begin(0);
