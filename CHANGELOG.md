@@ -1,5 +1,18 @@
 # V3.11.0 - Browser OTA firmware updates
 
+## V3.14.0-dev2 - Reusable artwork themes
+
+- Added a compile-time registry for optional artwork-driven themes using stable IDs 16-63 while preserving existing built-in theme IDs.
+- Added one generic runtime artwork renderer for full-resolution backgrounds, masked stars, masked lunar phase, animated masked light regions, live date/weather/time/calendar overlays, and configurable layout anchors.
+- Added `tools/build_artwork_themes.py`, which scans `artwork/themes/`, converts enabled themes, validates IDs, generates compact C++ assets, and rebuilds the artwork registry.
+- Added a reusable `artwork/themes/_template` containing theme, layout, and palette configuration files.
+- Added per-theme color/monochrome mode and burst-phase configuration so future grayscale artwork can retain the proven no-colorburst output path.
+- Added per-theme CRT hue mapping and dynamic feature flags for stars, moon, and light regions.
+- Added conservative artwork flash budgets: 96 KB per optional theme, 384 KB combined, and a maximum of eight optional artwork themes.
+- Updated the web UI to read the theme registry from the ESP32, so newly compiled artwork themes automatically appear in the selector.
+- Updated the WiFi update script to generate artwork before compiling and to reject firmware that gets too close to the actual OTA slot size reported by the clock.
+- All PNG decoding, quantization, mask analysis, compression, and connected-component work remains on the development machine; adding a theme does not add a decoded image or mask allocation to ESP32 heap.
+
 ## V3.14.0-dev1 - Full-resolution artwork + WiFi push pipeline
 
 - Added a full-resolution 336x240 Moonlit Cabin artwork path; the renderer no longer requires 168x120 source art scaled 2x.
