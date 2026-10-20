@@ -83,7 +83,9 @@ RETRO_INLINE bool isValidTheme(uint8_t theme) {
 }
 
 RETRO_INLINE bool themeUsesColor(uint8_t theme) {
-    return isArtworkTheme(theme);
+    if (theme == THEME_MOONLIT_CABIN) return true;
+    const artwork_theme::Asset* asset = artworkTheme(theme);
+    return asset ? asset->usesColor != 0 : false;
 }
 
 RETRO_INLINE uint8_t themeBurstPhase(uint8_t theme) {
