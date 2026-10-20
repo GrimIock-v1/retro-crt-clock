@@ -42,12 +42,13 @@ python3 tools/push_wifi.py
 
 The script:
 
-1. reads the current firmware version from the clock,
-2. runs `pio run -e esp32dev`,
-3. uploads the generated `.pio/build/esp32dev/firmware.bin` directly to
-   `/api/firmware` over WiFi,
-4. waits for the ESP32 to reboot,
-5. reports the firmware version that came back online.
+1. reads the current firmware version and OTA-slot capacity from the clock,
+2. regenerates all enabled artwork themes and applies the artwork flash budgets,
+3. runs `pio run -e esp32dev`,
+4. checks the final `firmware.bin` against the real OTA slot with a safety margin,
+5. uploads it directly to `/api/firmware` over WiFi,
+6. waits for the ESP32 to reboot,
+7. reports the firmware version that came back online.
 
 You can override the saved host without editing anything:
 
