@@ -272,9 +272,11 @@ static const uint8_t SKY_MASK[] = {{
 static constexpr uint32_t SKY_MASK_SIZE = {len(packed_mask)};
 
 inline bool skyAllows(uint16_t x, uint16_t y) {{
-    if (x >= WIDTH || y >= HEIGHT) return false;
+    if (SKY_MASK_SIZE == 0 || x >= WIDTH || y >= HEIGHT) return false;
     const uint32_t index = (uint32_t)y * WIDTH + x;
-    return (SKY_MASK[index >> 3] & (uint8_t)(1U << (index & 7))) != 0;
+    const uint32_t byteIndex = index >> 3;
+    if (byteIndex >= SKY_MASK_SIZE) return false;
+    return (SKY_MASK[byteIndex] & (uint8_t)(1U << (index & 7))) != 0;
 }}
 
 }} // namespace {namespace}
