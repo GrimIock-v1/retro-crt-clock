@@ -228,6 +228,7 @@ inline bool skyAllows(uint16_t x, uint16_t y) {{
             raise SystemExit(f"Invalid animated window rectangle: {item}")
         window_rows.append(f"    {{{x}, {y}, {w}, {h}}},")
 
+    emitted_windows = window_rows or ["    {0, 0, 0, 0},"]
     metadata = f"""
 struct DynamicRect {{
     uint16_t x;
@@ -240,9 +241,9 @@ static constexpr uint16_t MOON_X = {moon_x};
 static constexpr uint16_t MOON_Y = {moon_y};
 
 static const DynamicRect WINDOWS[] = {{
-{chr(10).join(window_rows)}
+{chr(10).join(emitted_windows)}
 }};
-static constexpr uint8_t WINDOW_COUNT = sizeof(WINDOWS) / sizeof(WINDOWS[0]);
+static constexpr uint8_t WINDOW_COUNT = {len(windows)};
 """
 
     header = header.replace(
