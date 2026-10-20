@@ -96,6 +96,49 @@ def merged_layout(theme_dir: Path) -> dict:
     return layout
 
 
+def validate_layout(theme_name: str, layout: dict) -> None:
+    moon = layout["moon"]
+    mx = int(moon["x"])
+    my = int(moon["y"])
+    if not (0 <= mx < 336 and 0 <= my < 240):
+        raise SystemExit(f"{theme_name}: moon anchor must be inside 336x240")
+
+    ui = layout["ui"]
+    point_checks = [
+        ("date", int(ui["date"]["x"]), int(ui["date"]["y"])),
+        ("weather_icon", int(ui["weather_icon"]["x"]), int(ui["weather_icon"]["y"])),
+        ("temperature", int(ui["temperature"]["right_x"]), int(ui["temperature"]["y"])),
+        ("next_label", int(ui["next_label"]["x"]), int(ui["next_label"]["y"])),
+        ("next_event", int(ui["next_event"]["x"]), int(ui["next_event"]["y"])),
+    ]
+    for label, x, y in point_checks:
+        if not (0 <= x < 336 and 0 <= y < 240):
+            raise SystemExit(f"{theme_name}: {label} anchor must be inside 336x240")
+
+    desc_y = int(ui["weather_descriptor"]["y"])
+    if not 0 <= desc_y < 240:
+        raise SystemExit(f"{theme_name}: weather descriptor y must be inside 0..239")
+
+    clock_y = int(ui["clock"]["y"])
+    clock_scale = float(ui["clock"]["scale"])
+    suffix_scale = float(ui["clock"]["suffix_scale"])
+    scale256(clock_scale)
+    scale256(suffix_scale)
+    if clock_y < 0 or clock_y + int(round(8 * clock_scale)) > 240:
+        raise SystemExit(f"{theme_name}: clock does not fit vertically in 336x240")
+
+    for key in ("date", "next_label", "next_event"):
+        scale256(ui[key]["scale"])
+
+    max_x = int(ui["next_event"]["max_x"])
+    if not 0 <= max_x < 336:
+        raise SystemExit(f"{theme_name}: next_event.max_x must be inside 0..335")
+
+    day_y = int(ui["day_bar"]["y"])
+    if day_y < -1 or day_y > 234:
+        raise SystemExit(f"{theme_name}: day_bar.y must be -1 or within 0..234")
+
+
 def feature_bits(config: dict) -> int:
     dynamic = config.get("dynamic", {})
     bits = 0
@@ -187,6 +230,8 @@ def main() -> None:
             name = str(cfg["name"]).strip()
             if not name:
                 raise SystemExit(f"{theme_dir.name}: theme name cannot be empty")
+            if len(name) > 32:
+                raise SystemExit(f"{theme_dir.name}: theme name must be 32 characters or fewer")
 
             background = theme_dir / "background.png"
             palette = theme_dir / "palette.json"
@@ -212,12 +257,24 @@ def main() -> None:
             ]
             if layout_path.exists():
                 command += ["--layout", str(layout_path)]
-            sky = theme_dir / "sky_mask.png"
-            if sky.exists():
-                command += ["--sky-mask", str(sky)]
-            windows = theme_dir / "window_mask.png"
-            if windows.exists():
-                command += ["--window-mask", str(windows)]
+
+            dynamic = cfg.get("dynamic", {})
+            needs_sky = bool(dynamic.get("stars", False) or dynamic.get("moon", False))
+            if needs_sky:
+                sky = theme_dir / "sky_mask.png"
+                if sky.exists():
+                    command += ["--sky-mask", str(sky)]
+            else:
+                command += ["--omit-sky-mask"]
+
+            if dynamic.get("lights", False):
+                windows = theme_dir / "window_mask.png"
+                if windows.exists():
+                    command += ["--window-mask", str(windows)]
+            else:
+                command += ["--omit-windows"]
+
+            command += ["--preview-dir", str(theme_dir / "build")]
 
             print(f"\n=== Building artwork theme: {name} ({theme_id}) ===")
             subprocess.run(command, cwd=ROOT, check=True)
@@ -232,13 +289,16 @@ def main() -> None:
                     "or reduce high-frequency pixel detail."
                 )
 
+            layout = merged_layout(theme_dir)
+            validate_layout(name, layout)
+
             themes.append({
                 "id": theme_id,
                 "name": name,
                 "slug": slug,
                 "namespace": namespace,
                 "config": cfg,
-                "layout": merged_layout(theme_dir),
+                "layout": layout,
                 "estimated": estimated,
             })
 
