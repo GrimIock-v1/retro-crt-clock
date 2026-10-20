@@ -771,4 +771,19 @@ inline bool skyAllows(uint16_t x, uint16_t y) {
     return (SKY_MASK[index >> 3] & (uint8_t)(1U << (index & 7))) != 0;
 }
 
+struct DynamicRect {
+    uint16_t x;
+    uint16_t y;
+    uint8_t w;
+    uint8_t h;
+};
+
+static constexpr uint16_t MOON_X = 65;
+static constexpr uint16_t MOON_Y = 65;
+static const DynamicRect WINDOWS[] = {
+    {278, 194, 10, 10},
+    {298, 194, 10, 10},
+};
+static constexpr uint8_t WINDOW_COUNT = sizeof(WINDOWS) / sizeof(WINDOWS[0]);
+
 } // namespace moonlit_cabin_art
