@@ -1,0 +1,67 @@
+{
+  "transparent_fill": "sky_black",
+  "colors": [
+    {
+      "name": "sky_black",
+      "rgb": "#05070D",
+      "byte": "0x01",
+      "dynamic_sky": true
+    },
+    {
+      "name": "sky_blue",
+      "rgb": "#0A1836",
+      "byte": "0x82",
+      "dynamic_sky": true
+    },
+    {
+      "name": "mountain_deep",
+      "rgb": "#142B55",
+      "byte": "0x86"
+    },
+    {
+      "name": "mountain_blue",
+      "rgb": "#244A7A",
+      "byte": "0x92"
+    },
+    {
+      "name": "ice",
+      "rgb": "#86C8E8",
+      "byte": "0xA8"
+    },
+    {
+      "name": "tree_dark",
+      "rgb": "#263318",
+      "byte": "0xB3"
+    },
+    {
+      "name": "foliage",
+      "rgb": "#617238",
+      "byte": "0xC5"
+    },
+    {
+      "name": "wood_dark",
+      "rgb": "#3A251A",
+      "byte": "0x32"
+    },
+    {
+      "name": "wood_mid",
+      "rgb": "#68412A",
+      "byte": "0x36"
+    },
+    {
+      "name": "reflection",
+      "rgb": "#4A92B5",
+      "byte": "0xF5"
+    },
+    {
+      "name": "neutral_dark",
+      "rgb": "#17191E",
+      "byte": "0x04"
+    },
+    {
+      "name": "neutral_light",
+      "rgb": "#D8DADD",
+      "byte": "0x0E"
+    }
+  ]
+}
