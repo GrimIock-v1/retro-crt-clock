@@ -164,6 +164,8 @@ def main() -> None:
     parser.add_argument("--stats-json", type=Path)
     parser.add_argument("--sky-mask", "--mask", dest="sky_mask", type=Path)
     parser.add_argument("--window-mask", type=Path)
+    parser.add_argument("--omit-sky-mask", action="store_true")
+    parser.add_argument("--omit-windows", action="store_true")
     parser.add_argument("--layout", type=Path)
     parser.add_argument("--preview-dir", type=Path)
     args = parser.parse_args()
@@ -236,7 +238,7 @@ def main() -> None:
         sky_bits.append(sky)
 
     rle = row_rle(indexed)
-    packed_mask = pack_mask(sky_bits)
+    packed_mask = [] if args.omit_sky_mask else pack_mask(sky_bits)
 
     namespace = args.namespace.strip()
     if not namespace or not all(c.isalnum() or c == "_" for c in namespace):
@@ -264,10 +266,10 @@ static constexpr uint32_t RLE_SIZE = sizeof(RLE);
 // One bit per output pixel. Dynamic stars/moon may only draw where this mask
 // is set, preventing them from appearing over mountains, trees, or buildings.
 static const uint8_t SKY_MASK[] = {{
-{format_bytes(packed_mask)}
+{format_bytes(packed_mask if packed_mask else [0])}
 }};
 
-static constexpr uint32_t SKY_MASK_SIZE = sizeof(SKY_MASK);
+static constexpr uint32_t SKY_MASK_SIZE = {len(packed_mask)};
 
 inline bool skyAllows(uint16_t x, uint16_t y) {{
     if (x >= WIDTH || y >= HEIGHT) return false;
@@ -292,7 +294,9 @@ inline bool skyAllows(uint16_t x, uint16_t y) {{
     # disconnected white region becomes an independently animated light.
     # Legacy layout rectangles remain accepted as a fallback so older artwork
     # can be converted without first painting a mask.
-    if explicit_window_mask is not None:
+    if args.omit_windows:
+        window_pixels = [0] * (WIDTH * HEIGHT)
+    elif explicit_window_mask is not None:
         window_pixels = list(explicit_window_mask.getdata())
     else:
         window_pixels = [0] * (WIDTH * HEIGHT)
