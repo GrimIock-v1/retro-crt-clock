@@ -257,6 +257,31 @@ All three parallax skyline layers now continue to the physical bottom edge, with
 - Moved the icon closer to the temperature and weather descriptor.
 
 
+## Artwork-driven themes
+
+V3.14 adds a reusable native-resolution artwork path. New artwork themes live
+under `artwork/themes/<name>/` and use a 336x240 background plus optional
+sky/window masks. The build machine handles PNG decoding, palette quantization,
+mask analysis and compression; the ESP32 receives only compact flash-resident
+indexed data.
+
+Run:
+
+```bash
+python3 tools/build_artwork_themes.py
+```
+
+Registered themes automatically appear in the clock web UI. New artwork can opt
+into live stars, real lunar phase and independently flickering masked lights,
+with positions for the clock/date/weather/calendar overlay controlled by
+`layout.json`.
+
+The generator enforces conservative flash/render-complexity budgets, and
+`tools/push_wifi.py` checks the final firmware against the clock's real OTA
+slot before uploading.
+
+See `artwork/themes/README.md` for the full authoring format.
+
 ## V3.11 browser OTA firmware updates
 
 V3.11 adds a local browser-based OTA update flow to the existing clock control page. The first V3.11 installation still requires USB. After that, build the next release with PlatformIO and upload `.pio/build/esp32dev/firmware.bin` from the Firmware Update card.
