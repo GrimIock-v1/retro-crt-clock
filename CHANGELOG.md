@@ -1,5 +1,17 @@
 # V3.11.0 - Browser OTA firmware updates
 
+## V3.14.0-dev1 - Full-resolution artwork + WiFi push pipeline
+
+- Added a full-resolution 336x240 Moonlit Cabin artwork path; the renderer no longer requires 168x120 source art scaled 2x.
+- Converted the current Cabin asset to a 336x240 compatibility asset so the code path is already native-resolution; a newly authored 336x240 PNG can now replace it without renderer changes.
+- Added a generated 1-bit sky mask and clipped all animated stars to it, preventing stars from rendering over mountains, trees, the cabin, or foreground scenery.
+- Added artwork metadata for dynamic moon and cabin-window positions so a replacement scene can move those elements without editing C++.
+- Added `tools/convert_background.py`, a Pillow-based PNG-to-firmware converter with palette quantization, sky-mask generation, layout metadata, and optional preview output.
+- Added designer palette and layout configuration under `artwork/moonlit_cabin/`.
+- Added `tools/push_wifi.py` for one-command build + WiFi firmware upload through the existing browser OTA endpoint, avoiding USB and manual firmware.bin selection.
+- Kept the calibrated 227.5 NTSC timing, grayscale true-monochrome path, and p8 Cabin color calibration from the experiment branch.
+
+
 ## V3.13.3 - Authored Moonlit Cabin artwork
 
 - Replaced the procedurally generated Moonlit Cabin mountains/trees/house with an authored 168x120 indexed pixel-art backdrop scaled 2x to the 336x240 CRT framebuffer.
