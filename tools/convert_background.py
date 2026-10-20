@@ -95,12 +95,82 @@ def pack_mask(bits: list[bool]) -> list[int]:
     return packed
 
 
+def label_components(mask_pixels: list[int]) -> tuple[list[int], int]:
+    active = [value >= 128 for value in mask_pixels]
+    labels = [-1] * (WIDTH * HEIGHT)
+    component_count = 0
+
+    for start in range(WIDTH * HEIGHT):
+        if not active[start] or labels[start] != -1:
+            continue
+
+        if component_count >= 32:
+            raise SystemExit("Window mask supports at most 32 separate light regions.")
+
+        stack = [start]
+        labels[start] = component_count
+
+        while stack:
+            index = stack.pop()
+            x = index % WIDTH
+            y = index // WIDTH
+
+            if x > 0:
+                n = index - 1
+                if active[n] and labels[n] == -1:
+                    labels[n] = component_count
+                    stack.append(n)
+            if x + 1 < WIDTH:
+                n = index + 1
+                if active[n] and labels[n] == -1:
+                    labels[n] = component_count
+                    stack.append(n)
+            if y > 0:
+                n = index - WIDTH
+                if active[n] and labels[n] == -1:
+                    labels[n] = component_count
+                    stack.append(n)
+            if y + 1 < HEIGHT:
+                n = index + WIDTH
+                if active[n] and labels[n] == -1:
+                    labels[n] = component_count
+                    stack.append(n)
+
+        component_count += 1
+
+    return labels, component_count
+
+
+def component_spans(labels: list[int]) -> list[tuple[int, int, int, int]]:
+    spans: list[tuple[int, int, int, int]] = []
+
+    for y in range(HEIGHT):
+        x = 0
+        while x < WIDTH:
+            component = labels[y * WIDTH + x]
+            if component < 0:
+                x += 1
+                continue
+
+            start = x
+            while (
+                x < WIDTH
+                and labels[y * WIDTH + x] == component
+                and x - start < 255
+            ):
+                x += 1
+            spans.append((start, y, x - start, component))
+
+    return spans
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("image", type=Path)
     parser.add_argument("--palette", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--mask", type=Path)
+    parser.add_argument("--sky-mask", "--mask", dest="sky_mask", type=Path)
+    parser.add_argument("--window-mask", type=Path)
     parser.add_argument("--layout", type=Path)
     parser.add_argument("--preview-dir", type=Path)
     args = parser.parse_args()
@@ -133,12 +203,21 @@ def main() -> None:
         )
 
     explicit_mask = None
-    if args.mask:
-        explicit_mask = Image.open(args.mask).convert("L")
+    if args.sky_mask:
+        explicit_mask = Image.open(args.sky_mask).convert("L")
         if explicit_mask.size != (WIDTH, HEIGHT):
             raise SystemExit(
-                f"Mask must be exactly {WIDTH}x{HEIGHT}; got "
+                f"Sky mask must be exactly {WIDTH}x{HEIGHT}; got "
                 f"{explicit_mask.size[0]}x{explicit_mask.size[1]}"
+            )
+
+    explicit_window_mask = None
+    if args.window_mask:
+        explicit_window_mask = Image.open(args.window_mask).convert("L")
+        if explicit_window_mask.size != (WIDTH, HEIGHT):
+            raise SystemExit(
+                f"Window mask must be exactly {WIDTH}x{HEIGHT}; got "
+                f"{explicit_window_mask.size[0]}x{explicit_window_mask.size[1]}"
             )
 
     indexed: list[int] = []
@@ -203,10 +282,6 @@ inline bool skyAllows(uint16_t x, uint16_t y) {{
 
     layout = {
         "moon": {"x": 65, "y": 65},
-        "windows": [
-            {"x": 278, "y": 194, "w": 10, "h": 10},
-            {"x": 298, "y": 194, "w": 10, "h": 10},
-        ],
     }
     if args.layout:
         layout = json.loads(args.layout.read_text())
@@ -214,36 +289,51 @@ inline bool skyAllows(uint16_t x, uint16_t y) {{
     moon = layout.get("moon", {})
     moon_x = int(moon.get("x", 65))
     moon_y = int(moon.get("y", 65))
-    windows = layout.get("windows", [])
-    if len(windows) > 8:
-        raise SystemExit("At most 8 animated windows are supported.")
 
-    window_rows = []
-    for item in windows:
-        x = int(item["x"])
-        y = int(item["y"])
-        w = int(item["w"])
-        h = int(item["h"])
-        if x < 0 or y < 0 or w <= 0 or h <= 0 or x + w > WIDTH or y + h > HEIGHT:
-            raise SystemExit(f"Invalid animated window rectangle: {item}")
-        window_rows.append(f"    {{{x}, {y}, {w}, {h}}},")
+    # Preferred path: an artist supplies an exact 336x240 mask. Every
+    # disconnected white region becomes an independently animated light.
+    # Legacy layout rectangles remain accepted as a fallback so older artwork
+    # can be converted without first painting a mask.
+    if explicit_window_mask is not None:
+        window_pixels = list(explicit_window_mask.getdata())
+    else:
+        window_pixels = [0] * (WIDTH * HEIGHT)
+        for item in layout.get("windows", []):
+            wx = int(item["x"])
+            wy = int(item["y"])
+            ww = int(item["w"])
+            wh = int(item["h"])
+            if wx < 0 or wy < 0 or ww <= 0 or wh <= 0 or wx + ww > WIDTH or wy + wh > HEIGHT:
+                raise SystemExit(f"Invalid legacy window rectangle: {item}")
+            for yy in range(wy, wy + wh):
+                for xx in range(wx, wx + ww):
+                    window_pixels[yy * WIDTH + xx] = 255
 
-    emitted_windows = window_rows or ["    {0, 0, 0, 0},"]
+    window_labels, window_component_count = label_components(window_pixels)
+    window_spans = component_spans(window_labels)
+
+    span_rows = [
+        f"    {{{x}, {y}, {length}, {component}}},"
+        for x, y, length, component in window_spans
+    ]
+    emitted_spans = span_rows or ["    {0, 0, 0, 0},"]
+
     metadata = f"""
-struct DynamicRect {{
+struct WindowSpan {{
     uint16_t x;
     uint16_t y;
-    uint8_t w;
-    uint8_t h;
+    uint8_t len;
+    uint8_t component;
 }};
 
 static constexpr uint16_t MOON_X = {moon_x};
 static constexpr uint16_t MOON_Y = {moon_y};
 
-static const DynamicRect WINDOWS[] = {{
-{chr(10).join(emitted_windows)}
+static const WindowSpan WINDOW_SPANS[] = {{
+{chr(10).join(emitted_spans)}
 }};
-static constexpr uint8_t WINDOW_COUNT = {len(windows)};
+static constexpr uint16_t WINDOW_SPAN_COUNT = {len(window_spans)};
+static constexpr uint8_t WINDOW_COMPONENT_COUNT = {window_component_count};
 """
 
     header = header.replace(
@@ -265,10 +355,16 @@ static constexpr uint8_t WINDOW_COUNT = {len(windows)};
         mask_preview.putdata([255 if v else 0 for v in sky_bits])
         mask_preview.save(args.preview_dir / "sky-mask.png")
 
+        window_preview = Image.new("L", (WIDTH, HEIGHT))
+        window_preview.putdata(window_pixels)
+        window_preview.save(args.preview_dir / "window-mask.png")
+
     print(f"Wrote {args.output}")
     print(f"Resolution: {WIDTH}x{HEIGHT}")
     print(f"RLE bytes: {len(rle)}")
     print(f"Sky mask bytes: {len(packed_mask)}")
+    print(f"Window components: {window_component_count}")
+    print(f"Window spans: {len(window_spans)}")
     print("Palette usage:")
     for name, count in sorted(counts.items(), key=lambda kv: -kv[1]):
         if count:
