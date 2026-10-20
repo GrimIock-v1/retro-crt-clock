@@ -29,6 +29,8 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 HOST_FILE = ROOT / ".clock-host"
 FIRMWARE = ROOT / ".pio" / "build" / "esp32dev" / "firmware.bin"
+ARTWORK_BUILDER = ROOT / "tools" / "build_artwork_themes.py"
+OTA_SAFETY_MARGIN = 16 * 1024
 
 
 def normalize_host(value: str) -> str:
@@ -63,6 +65,13 @@ def get_json(url: str, timeout: float = 3.0):
 
 
 def build_firmware() -> None:
+    print("Generating optional artwork themes...")
+    subprocess.run(
+        [sys.executable, str(ARTWORK_BUILDER)],
+        cwd=ROOT,
+        check=True,
+    )
+
     print("Building esp32dev firmware...")
     subprocess.run(
         ["pio", "run", "-e", "esp32dev"],
@@ -84,6 +93,27 @@ def multipart_firmware(path: Path):
     ).encode("ascii")
     tail = f"\r\n--{boundary}--\r\n".encode("ascii")
     return boundary, head + data + tail
+
+
+def verify_ota_capacity(ota_slot_bytes: int | None) -> None:
+    if not FIRMWARE.exists():
+        raise SystemExit(f"{FIRMWARE} does not exist.")
+
+    size = FIRMWARE.stat().st_size
+    if not ota_slot_bytes:
+        print(f"Firmware size: {size:,} bytes (OTA slot size unavailable).")
+        return
+
+    safe_limit = max(0, ota_slot_bytes - OTA_SAFETY_MARGIN)
+    print(
+        f"Firmware size: {size:,} bytes; clock OTA slot: "
+        f"{ota_slot_bytes:,} bytes; guarded limit: {safe_limit:,} bytes."
+    )
+    if size > safe_limit:
+        raise SystemExit(
+            "Firmware is too close to or beyond the clock's OTA application "
+            "slot. Remove/simplify artwork or code before attempting WiFi OTA."
+        )
 
 
 def upload(host: str) -> None:
@@ -143,10 +173,12 @@ def main() -> None:
 
     host = read_host(args.host)
     old_version = None
+    ota_slot_bytes = None
 
     try:
         status = get_json(host + "/api/status")
         old_version = str(status.get("firmware", "?"))
+        ota_slot_bytes = int(status.get("ota_slot_bytes") or 0) or None
         print(f"Clock found at {host}. Current firmware: {old_version}")
     except Exception as exc:
         print(f"Warning: could not read clock status before upload: {exc}")
@@ -156,6 +188,7 @@ def main() -> None:
     elif not FIRMWARE.exists():
         raise SystemExit(f"{FIRMWARE} does not exist. Build first or omit --no-build.")
 
+    verify_ota_capacity(ota_slot_bytes)
     upload(host)
     wait_for_clock(host, old_version)
 
