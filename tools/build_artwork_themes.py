@@ -148,7 +148,7 @@ def registry_entry(item: dict) -> str:
         {ns}::SKY_MASK, {ns}::SKY_MASK_SIZE,
         {ns}::WINDOW_SPANS, {ns}::WINDOW_SPAN_COUNT, {ns}::WINDOW_COMPONENT_COUNT,
         {ns}::MOON_X, {ns}::MOON_Y,
-        {feature_bits(cfg)}, {burst}, {neutral}, {ice}, {warm}, 0x{star_seed:08X}U,
+        {feature_bits(cfg)}, {1 if cfg.get("color", True) else 0}, {burst}, {neutral}, {ice}, {warm}, 0x{star_seed:08X}U,
         {{{hue_map_text}}},
         {{
             {int(date['x'])}, {int(date['y'])}, {scale256(date['scale'])},
