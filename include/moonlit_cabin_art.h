@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include "artwork_theme_asset.h"
 
 namespace moonlit_cabin_art {
 
@@ -771,19 +772,34 @@ inline bool skyAllows(uint16_t x, uint16_t y) {
     return (SKY_MASK[index >> 3] & (uint8_t)(1U << (index & 7))) != 0;
 }
 
-struct DynamicRect {
-    uint16_t x;
-    uint16_t y;
-    uint8_t w;
-    uint8_t h;
-};
-
 static constexpr uint16_t MOON_X = 65;
 static constexpr uint16_t MOON_Y = 65;
-static const DynamicRect WINDOWS[] = {
-    {278, 194, 10, 10},
-    {298, 194, 10, 10},
+
+// Compatibility mask for the two existing cabin windows. New authored Cabin
+// art is generated from window_mask.png into the same compact span format.
+static const artwork_theme::WindowSpan WINDOW_SPANS[] = {
+    {278, 194, 10, 0},
+    {298, 194, 10, 1},
+    {278, 195, 10, 0},
+    {298, 195, 10, 1},
+    {278, 196, 10, 0},
+    {298, 196, 10, 1},
+    {278, 197, 10, 0},
+    {298, 197, 10, 1},
+    {278, 198, 10, 0},
+    {298, 198, 10, 1},
+    {278, 199, 10, 0},
+    {298, 199, 10, 1},
+    {278, 200, 10, 0},
+    {298, 200, 10, 1},
+    {278, 201, 10, 0},
+    {298, 201, 10, 1},
+    {278, 202, 10, 0},
+    {298, 202, 10, 1},
+    {278, 203, 10, 0},
+    {298, 203, 10, 1},
 };
-static constexpr uint8_t WINDOW_COUNT = sizeof(WINDOWS) / sizeof(WINDOWS[0]);
+static constexpr uint16_t WINDOW_SPAN_COUNT = sizeof(WINDOW_SPANS) / sizeof(WINDOW_SPANS[0]);
+static constexpr uint8_t WINDOW_COMPONENT_COUNT = 2;
 
 } // namespace moonlit_cabin_art
