@@ -1,0 +1,35 @@
+{
+  "id": 16,
+  "name": "My Artwork Theme",
+  "enabled": false,
+  "burst_phase_quarters": 2,
+  "dynamic": {
+    "stars": true,
+    "moon": true,
+    "lights": true
+  },
+  "hues": {
+    "neutral": 0,
+    "ice": 15,
+    "warm": 9
+  },
+  "star_seed": 305419896,
+  "hue_map": [
+    0,
+    1,
+    2,
+    10,
+    4,
+    5,
+    6,
+    7,
+    2,
+    3,
+    15,
+    7,
+    11,
+    13,
+    14,
+    15
+  ]
+}
