@@ -336,9 +336,10 @@ static constexpr uint16_t WINDOW_SPAN_COUNT = {len(window_spans)};
 static constexpr uint8_t WINDOW_COMPONENT_COUNT = {window_component_count};
 """
 
+    closing = f"}} // namespace {namespace}"
     header = header.replace(
-        "} // namespace moonlit_cabin_art",
-        metadata + "\n} // namespace moonlit_cabin_art",
+        closing,
+        metadata + "\n" + closing,
     )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
