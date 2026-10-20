@@ -125,3 +125,24 @@ same VBlank handoff used by the test framebuffer. Grayscale themes remain true
 monochrome and are unaffected.
 
 Firmware identifies this pass as `3.13.4-2275p7`.
+
+
+## Pass 8: lock Cabin phase and calibrate its logical palette
+
+The p7 sweep showed no single burst phase gives an ideal full-spectrum palette
+on this Sony. The useful tradeoff is:
+
+- 90/270 degrees: strongest greens, weak warm yellow/orange,
+- 180 degrees: best combined set for Moonlit Cabin, with strong blues/cyans,
+  clear yellow/orange, and usable olive/yellow-green.
+
+Pass 8 therefore:
+- locks Moonlit Cabin to a 180-degree burst offset,
+- leaves all grayscale themes in true monochrome exactly as before,
+- remaps the Cabin art's logical hue families to the physical hue indices that
+  the Sony displays most usefully at 180 degrees,
+- maps wood to a low-luminance orange/brown family, windows/moon to warm yellow,
+  mountains to blue/cyan, distant trees to olive green, and foreground foliage
+  to yellow-green.
+
+Firmware identifies this pass as `3.13.4-2275p8`.
