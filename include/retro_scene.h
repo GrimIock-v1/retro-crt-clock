@@ -1311,7 +1311,7 @@ RETRO_INLINE void drawCabinAuthoredBackground(G& g, const SceneData& d) {
             continue;
         }
 
-        g.fillRectPalette(x * 2, y * 2, count * 2, 2, cabinPaletteValue(d, raw));
+        g.fillRectPalette(x, y, count, 1, cabinPaletteValue(d, raw));
         x += count;
     }
 }
@@ -1411,14 +1411,24 @@ RETRO_INLINE void drawCabinStars(G& g, const SceneData& d) {
 
         const uint8_t lum = cabinLuma(d, base);
         g.setHue((i % 7 == 0) ? CABIN_HUE_ICE : CABIN_HUE_NEUTRAL);
-        pixel(g, xs[i], ys[i], lum);
+        if (moonlit_cabin_art::skyAllows(xs[i], ys[i])) {
+            pixel(g, xs[i], ys[i], lum);
+        }
 
         if (d.cabinTwinkle >= 2 && (i % 8 == 0)) {
             const uint32_t bucket = (d.frameMs + (seed & 1023U)) / 1700U;
             if ((mix32(seed ^ bucket) & 3U) == 0U) {
                 const uint8_t sparkle = cabinLuma(d, 33);
-                fill(g, xs[i] - 2, ys[i], 5, 1, sparkle);
-                fill(g, xs[i], ys[i] - 2, 1, 5, sparkle);
+                for (int sx = xs[i] - 2; sx <= xs[i] + 2; ++sx) {
+                    if (moonlit_cabin_art::skyAllows((uint16_t)sx, ys[i])) {
+                        pixel(g, sx, ys[i], sparkle);
+                    }
+                }
+                for (int sy = ys[i] - 2; sy <= ys[i] + 2; ++sy) {
+                    if (moonlit_cabin_art::skyAllows(xs[i], (uint16_t)sy)) {
+                        pixel(g, xs[i], sy, sparkle);
+                    }
+                }
             }
         }
     }
