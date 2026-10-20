@@ -1351,26 +1351,21 @@ RETRO_INLINE void drawCabinAuthoredBackground(G& g, const SceneData& d) {
 
 template <typename G>
 RETRO_INLINE void drawCabinWindowGlow(G& g, const SceneData& d) {
-    uint8_t windowLum = 0;
-    if (d.cabinGlow == 1) {
-        windowLum = cabinLuma(d, 30);
-    } else if (d.cabinGlow >= 2) {
-        const uint32_t bucket = d.frameMs / 2600U;
-        windowLum = cabinLuma(d, (bucket & 1U) ? 41 : 35);
-    }
-    if (!windowLum) return;
+    if (d.cabinGlow == 0 || moonlit_cabin_art::WINDOW_SPAN_COUNT == 0) return;
 
-    const uint8_t frameLum = cabinLuma(d, 8);
-    for (uint8_t i = 0; i < moonlit_cabin_art::WINDOW_COUNT; ++i) {
-        const moonlit_cabin_art::DynamicRect& r = moonlit_cabin_art::WINDOWS[i];
-        const uint8_t thisLum = (i & 1U) && windowLum > 4 ? windowLum - 4 : windowLum;
+    for (uint16_t i = 0; i < moonlit_cabin_art::WINDOW_SPAN_COUNT; ++i) {
+        const artwork_theme::WindowSpan& span = moonlit_cabin_art::WINDOW_SPANS[i];
+
+        uint8_t lum = cabinLuma(d, 30);
+        if (d.cabinGlow >= 2) {
+            const uint32_t offset = (uint32_t)span.component * 977U;
+            const uint32_t bucket = (d.frameMs + offset) / 2300U;
+            const uint32_t flicker = mix32(0x43414249U ^ offset ^ bucket);
+            lum = cabinLuma(d, (uint8_t)(32 + (flicker & 9U)));
+        }
 
         g.setHue(CABIN_HUE_WARM);
-        fill(g, r.x, r.y, r.w, r.h, thisLum);
-
-        g.setHue(CABIN_HUE_WOOD);
-        if (r.w >= 4) fill(g, r.x + r.w / 2, r.y, 1, r.h, frameLum);
-        if (r.h >= 4) fill(g, r.x, r.y + r.h / 2, r.w, 1, frameLum);
+        fill(g, span.x, span.y, span.len, 1, lum);
     }
 }
 
