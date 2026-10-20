@@ -42,11 +42,11 @@ static const char WEB_UI_HTML[] PROGMEM = R"HTML(
 <div class="field"><label for="rain_brightness">Rain brightness <span class="value"><span id="rain_brightness_v"></span>%</span></label><input id="rain_brightness" name="rain_brightness" type="range" min="0" max="100" step="1"></div>
 <div class="field"><label for="rain_speed">Rain speed</label><select id="rain_speed" name="rain_speed"><option value="0">Off</option><option value="1">Slow</option><option value="2">Normal</option><option value="3">Fast</option></select></div>
 </div>
-<div id="themeCabin" class="theme-options">
+<div id="themeArtwork" class="theme-options">
 <div class="field"><label for="cabin_brightness">Scene brightness <span class="value"><span id="cabin_brightness_v"></span>%</span></label><input id="cabin_brightness" name="cabin_brightness" type="range" min="0" max="100" step="1"></div>
 <div class="field"><label for="cabin_twinkle">Star twinkle</label><select id="cabin_twinkle" name="cabin_twinkle"><option value="0">Off</option><option value="1">Low</option><option value="2">Normal</option></select></div>
-<div class="field"><label for="cabin_glow">Cabin glow</label><select id="cabin_glow" name="cabin_glow"><option value="0">Off</option><option value="1">Low</option><option value="2">Normal</option></select></div>
-<div class="hint">Moon phase follows the current date automatically.</div>
+<div class="field"><label for="cabin_glow">Artwork light glow</label><select id="cabin_glow" name="cabin_glow"><option value="0">Off</option><option value="1">Low</option><option value="2">Normal</option></select></div>
+<div class="hint">Artwork themes can use live stars, lunar phase, and masked light regions when enabled by the theme.</div>
 </div>
 <div class="buttons"><button class="primary" type="submit">Save settings</button><button id="previewBtn" type="button">Preview for 60 sec</button><button id="revertBtn" type="button">Revert preview</button><button id="defaultsBtn" class="danger" type="button">Restore defaults</button></div>
 <div class="msg" id="settingsMsg" aria-live="polite"></div>
@@ -71,9 +71,11 @@ static const char WEB_UI_HTML[] PROGMEM = R"HTML(
 (()=>{if(window.__crtInit)return;window.__crtInit=true;
 const $=id=>document.getElementById(id);const msg=(id,t)=>{$(id).textContent=t||''};
 const ranges=['drift_pixels','drift_minutes','night_brightness','clock_brightness','background_brightness','rain_brightness','cabin_brightness'];
+let themeCatalog={};
 for(const id of ranges){$(id).addEventListener('input',()=>$(id+'_v').textContent=$(id).value)}
 function formBody(displayOnly=false){const displayIds=['theme','drift_pixels','drift_minutes','night_brightness','clock_brightness','background_brightness','rain_brightness','cabin_brightness','city_speed','rain_speed','cabin_twinkle','cabin_glow','time_format','temperature_unit','weather_text','day_bar'];const ids=displayOnly?displayIds:['bridge_url','timezone_rule',...displayIds];const p=new URLSearchParams();for(const id of ids){const el=$(id);p.set(id,el.type==='checkbox'?(el.checked?'1':'0'):el.value)}return p}
-function updateThemeOptions(){const theme=$('theme').value;$('themeCity').classList.toggle('active',theme==='0');$('themeRpg').classList.toggle('active',theme==='2');$('themeRain').classList.toggle('active',theme==='3');$('themeCabin').classList.toggle('active',theme==='4')}
+function updateThemeOptions(){const theme=$('theme').value;const meta=themeCatalog[theme];const artwork=theme==='4'||(meta&&meta.artwork);$('themeCity').classList.toggle('active',theme==='0');$('themeRpg').classList.toggle('active',theme==='2');$('themeRain').classList.toggle('active',theme==='3');$('themeArtwork').classList.toggle('active',!!artwork)}
+async function loadThemes(){try{const r=await fetch('/api/themes',{cache:'no-store'});const data=await r.json();if(!Array.isArray(data.themes))return;const select=$('theme');const previous=select.value;themeCatalog={};select.innerHTML='';for(const item of data.themes){const id=String(item.id);themeCatalog[id]=item;const option=document.createElement('option');option.value=id;option.textContent=item.name;select.appendChild(option)}if([...select.options].some(o=>o.value===previous))select.value=previous}catch(e){/* keep firmware-bundled fallback options */}}
 async function post(url,body){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});const j=await r.json().catch(()=>({ok:false,message:'Invalid response'}));if(!r.ok||j.ok===false)throw new Error(j.message||('HTTP '+r.status));return j}
 async function loadSettings(){try{const r=await fetch('/api/settings',{cache:'no-store'});const s=await r.json();$('bridge_url').value=s.bridge_url;$('timezone_rule').value=s.timezone_rule;$('drift_pixels').value=s.drift_pixels;$('drift_minutes').value=s.drift_minutes;$('night_brightness').value=s.night_brightness;$('clock_brightness').value=s.clock_brightness;$('background_brightness').value=s.background_brightness;$('rain_brightness').value=typeof s.rain_brightness==='number'?s.rain_brightness:s.background_brightness;$('cabin_brightness').value=typeof s.cabin_brightness==='number'?s.cabin_brightness:100;$('city_speed').value=s.city_speed;$('rain_speed').value=typeof s.rain_speed==='number'?s.rain_speed:s.city_speed;$('cabin_twinkle').value=typeof s.cabin_twinkle==='number'?s.cabin_twinkle:2;$('cabin_glow').value=typeof s.cabin_glow==='number'?s.cabin_glow:2;$('theme').value=String(s.theme||0);$('time_format').value=s.use_24h?'24':'12';$('temperature_unit').value=s.fahrenheit?'F':'C';$('weather_text').checked=s.weather_text;$('day_bar').checked=s.day_bar;for(const id of ranges)$(id+'_v').textContent=$(id).value;updateThemeOptions();$('version').textContent='Firmware '+s.firmware+(s.preview_active?' • preview active':'');if(s.ota_slot_bytes)$('otaLimit').textContent='max '+(s.ota_slot_bytes/1048576).toFixed(2)+' MB'}catch(e){msg('settingsMsg','Could not load settings: '+e.message)}}
 function fmtUptime(sec){sec=Math.max(0,Number(sec)||0);const d=Math.floor(sec/86400);const h=Math.floor((sec%86400)/3600);const m=Math.floor((sec%3600)/60);return (d?d+'d ':'')+h+'h '+m+'m'}
@@ -107,6 +109,6 @@ $('firmwareBtn').addEventListener('click',()=>{
  xhr.open('POST','/api/firmware');xhr.send(fd);
 });
 $('restartBtn').addEventListener('click',async()=>{if(!confirm('Restart the CRT clock?'))return;try{const j=await post('/api/restart','');msg('actionMsg',j.message||'Restarting…')}catch(e){msg('actionMsg',e.message)}});
-loadSettings();loadStatus();})();
+loadThemes().then(loadSettings);loadStatus();})();
 </script></body></html>
 )HTML";
