@@ -101,6 +101,7 @@ def main() -> None:
     parser.add_argument("--palette", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--mask", type=Path)
+    parser.add_argument("--layout", type=Path)
     parser.add_argument("--preview-dir", type=Path)
     args = parser.parse_args()
 
@@ -199,6 +200,55 @@ inline bool skyAllows(uint16_t x, uint16_t y) {{
 
 }} // namespace moonlit_cabin_art
 """
+
+    layout = {
+        "moon": {"x": 65, "y": 65},
+        "windows": [
+            {"x": 278, "y": 194, "w": 10, "h": 10},
+            {"x": 298, "y": 194, "w": 10, "h": 10},
+        ],
+    }
+    if args.layout:
+        layout = json.loads(args.layout.read_text())
+
+    moon = layout.get("moon", {})
+    moon_x = int(moon.get("x", 65))
+    moon_y = int(moon.get("y", 65))
+    windows = layout.get("windows", [])
+    if len(windows) > 8:
+        raise SystemExit("At most 8 animated windows are supported.")
+
+    window_rows = []
+    for item in windows:
+        x = int(item["x"])
+        y = int(item["y"])
+        w = int(item["w"])
+        h = int(item["h"])
+        if x < 0 or y < 0 or w <= 0 or h <= 0 or x + w > WIDTH or y + h > HEIGHT:
+            raise SystemExit(f"Invalid animated window rectangle: {item}")
+        window_rows.append(f"    {{{x}, {y}, {w}, {h}}},")
+
+    metadata = f"""
+struct DynamicRect {{
+    uint16_t x;
+    uint16_t y;
+    uint8_t w;
+    uint8_t h;
+}};
+
+static constexpr uint16_t MOON_X = {moon_x};
+static constexpr uint16_t MOON_Y = {moon_y};
+
+static const DynamicRect WINDOWS[] = {{
+{chr(10).join(window_rows)}
+}};
+static constexpr uint8_t WINDOW_COUNT = sizeof(WINDOWS) / sizeof(WINDOWS[0]);
+"""
+
+    header = header.replace(
+        "} // namespace moonlit_cabin_art",
+        metadata + "\n} // namespace moonlit_cabin_art",
+    )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(header)
