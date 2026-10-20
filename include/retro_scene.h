@@ -1247,13 +1247,15 @@ RETRO_INLINE void drawDigitalRainTheme(G& g, const SceneData& d, const SceneCach
 }
 
 
+// Calibrated against the Sony Trinitron at a 180-degree NTSC burst offset.
+// These are physical palette hue indices, not abstract RGB values.
 static constexpr uint8_t CABIN_HUE_NEUTRAL = 0;
-static constexpr uint8_t CABIN_HUE_SKY = 9;
-static constexpr uint8_t CABIN_HUE_ICE = 10;
-static constexpr uint8_t CABIN_HUE_MOUNTAIN = 8;
-static constexpr uint8_t CABIN_HUE_TREE = 12;
-static constexpr uint8_t CABIN_HUE_WOOD = 3;
-static constexpr uint8_t CABIN_HUE_WARM = 15;
+static constexpr uint8_t CABIN_HUE_SKY = 2;       // deep blue
+static constexpr uint8_t CABIN_HUE_ICE = 15;      // cyan / icy blue
+static constexpr uint8_t CABIN_HUE_MOUNTAIN = 3;  // blue-cyan
+static constexpr uint8_t CABIN_HUE_TREE = 7;      // dark olive green
+static constexpr uint8_t CABIN_HUE_WOOD = 10;     // orange at low luma -> brown
+static constexpr uint8_t CABIN_HUE_WARM = 9;      // warm yellow
 
 RETRO_INLINE uint8_t cabinLuma(const SceneData& d, uint8_t base) {
     return dimForNight(scaleLuma(base, d.cabinBrightnessPct),
@@ -1261,9 +1263,26 @@ RETRO_INLINE uint8_t cabinLuma(const SceneData& d, uint8_t base) {
 }
 
 RETRO_INLINE uint8_t cabinPaletteValue(const SceneData& d, uint8_t raw) {
-    const uint8_t hue = raw & 0xF0;
+    const uint8_t sourceHue = (raw >> 4) & 0x0F;
     const uint8_t sourceLum = raw & 0x0F;
-    if (sourceLum == 0) return hue;
+
+    // The authored art uses logical hue families. Remap only the families used
+    // by the asset to the hue codes that the real Sony produces usefully at
+    // the selected 180-degree burst phase.
+    uint8_t hue = sourceHue;
+    switch (sourceHue) {
+        case 0x0: hue = 0x0; break; // neutral / black sky
+        case 0x3: hue = 0xA; break; // wood -> orange/brown
+        case 0x8: hue = 0x2; break; // dark mountain -> blue
+        case 0x9: hue = 0x3; break; // far mountain -> blue-cyan
+        case 0xA: hue = 0xF; break; // snow/ice -> cyan
+        case 0xB: hue = 0x7; break; // distant trees -> olive green
+        case 0xC: hue = 0xB; break; // grass/near foliage -> yellow-green
+        case 0xF: hue = 0xF; break; // reflections -> cyan
+        default: break;
+    }
+
+    if (sourceLum == 0) return (uint8_t)(hue << 4);
 
     int pct = d.cabinBrightnessPct;
     const int night = nightLevel(d);
@@ -1273,7 +1292,7 @@ RETRO_INLINE uint8_t cabinPaletteValue(const SceneData& d, uint8_t raw) {
     int lum = (sourceLum * pct + 50) / 100;
     if (pct > 0 && lum == 0) lum = 1;
     lum = clampInt(lum, 0, 15);
-    return (uint8_t)(hue | (uint8_t)lum);
+    return (uint8_t)((hue << 4) | (uint8_t)lum);
 }
 
 template <typename G>
