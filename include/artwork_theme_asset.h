@@ -65,6 +65,7 @@ struct Asset {
     uint16_t moonY;
 
     uint8_t features;
+    uint8_t usesColor;
     uint8_t burstPhaseQuarters;
     uint8_t neutralHue;
     uint8_t iceHue;
