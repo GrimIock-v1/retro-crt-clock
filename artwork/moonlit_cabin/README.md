@@ -48,14 +48,22 @@ There are three ways to define sky:
 The explicit mask is best for artwork with gradients, clouds, or complicated
 silhouettes.
 
-## Dynamic positions
+## Dynamic positions and light mask
 
-`layout.json` defines artwork-dependent live elements:
+`layout.json` defines the moon anchor.
 
-- moon center
-- animated cabin-window rectangles
+For new artwork, animated window/light shapes should be supplied as a separate
+336x240 `window_mask.png`:
 
-This lets a new artist move the cabin or moon without changing C++.
+- black = static artwork
+- white = firmware-controlled glow
+
+Each disconnected white region becomes an independently flickering light. The
+converter stores compact horizontal spans in flash, not a 336x240 runtime mask.
+
+The rectangle entries still present in the compatibility `layout.json` are a
+legacy fallback for the current Cabin asset and can be removed once the new
+authored artwork supplies `window_mask.png`.
 
 ## Palette
 
@@ -86,20 +94,21 @@ python3 tools/convert_background.py \
   artwork/moonlit_cabin/background.png \
   --palette artwork/moonlit_cabin/palette.json \
   --layout artwork/moonlit_cabin/layout.json \
+  --sky-mask artwork/moonlit_cabin/sky_mask.png \
+  --window-mask artwork/moonlit_cabin/window_mask.png \
   --output include/moonlit_cabin_art.h \
   --preview-dir artwork/moonlit_cabin/build
 ```
 
-If using an explicit sky mask, add:
-
-```bash
-  --mask artwork/moonlit_cabin/sky_mask.png
-```
+Both mask arguments are optional. If the sky mask is omitted, transparent or
+palette-marked sky pixels are used. If the window mask is omitted, the legacy
+window rectangles in `layout.json` are used.
 
 The preview directory contains:
 
 - `quantized.png` – what colors were accepted by the designer palette
-- `sky-mask.png` – exactly where live stars are allowed
+- `sky-mask.png` – exactly where live stars/moon are allowed
+- `window-mask.png` – exactly where animated light is allowed
 
 Commit the generated `include/moonlit_cabin_art.h` with the artwork change.
 
