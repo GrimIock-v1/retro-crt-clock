@@ -34,6 +34,9 @@ CONVERTER = ROOT / "tools" / "convert_background.py"
 MAX_THEME_COUNT = 8
 MAX_THEME_FLASH_BYTES = 96 * 1024
 MAX_TOTAL_ARTWORK_FLASH_BYTES = 384 * 1024
+WARN_RLE_BYTES = 32 * 1024
+MAX_RLE_BYTES = 64 * 1024
+MAX_WINDOW_SPANS = 512
 
 DEFAULT_HUE_MAP = [
     0, 1, 2, 10,
@@ -282,6 +285,25 @@ def main() -> None:
             stats = json.loads(stats_path.read_text())
             stats_path.unlink(missing_ok=True)
             estimated = int(stats["estimated_flash_bytes"])
+            rle_bytes = int(stats["rle_bytes"])
+            window_span_count = int(stats["window_span_count"])
+
+            if rle_bytes > MAX_RLE_BYTES:
+                raise SystemExit(
+                    f"{name}: backdrop RLE is {rle_bytes:,} bytes; hard render-complexity "
+                    f"limit is {MAX_RLE_BYTES:,}. Reduce single-pixel/noisy detail."
+                )
+            if rle_bytes > WARN_RLE_BYTES:
+                print(
+                    f"WARNING: {name} backdrop RLE is {rle_bytes:,} bytes. "
+                    "This is within the build limit but should be CRT-tested for render time."
+                )
+            if window_span_count > MAX_WINDOW_SPANS:
+                raise SystemExit(
+                    f"{name}: window mask generated {window_span_count} horizontal spans; "
+                    f"limit is {MAX_WINDOW_SPANS}. Simplify the light mask."
+                )
+
             if estimated > MAX_THEME_FLASH_BYTES:
                 raise SystemExit(
                     f"{name}: estimated generated asset is {estimated:,} bytes; "
