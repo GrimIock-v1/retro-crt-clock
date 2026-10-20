@@ -1,0 +1,44 @@
+{
+  "moon": {
+    "x": 65,
+    "y": 65
+  },
+  "ui": {
+    "date": {
+      "x": 13,
+      "y": 17,
+      "scale": 1.15
+    },
+    "weather_icon": {
+      "x": 244,
+      "y": 14
+    },
+    "temperature": {
+      "right_x": 322,
+      "y": 17
+    },
+    "weather_descriptor": {
+      "y": 30
+    },
+    "clock": {
+      "y": 115,
+      "scale": 5.25,
+      "suffix_scale": 1.35,
+      "suffix_dy": 26
+    },
+    "next_label": {
+      "x": 35,
+      "y": 169,
+      "scale": 0.9
+    },
+    "next_event": {
+      "x": 35,
+      "y": 183,
+      "scale": 1.35,
+      "max_x": 238
+    },
+    "day_bar": {
+      "y": 218
+    }
+  }
+}
