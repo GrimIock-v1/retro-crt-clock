@@ -169,6 +169,8 @@ def main() -> None:
     parser.add_argument("image", type=Path)
     parser.add_argument("--palette", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--namespace", default="moonlit_cabin_art")
+    parser.add_argument("--stats-json", type=Path)
     parser.add_argument("--sky-mask", "--mask", dest="sky_mask", type=Path)
     parser.add_argument("--window-mask", type=Path)
     parser.add_argument("--layout", type=Path)
@@ -245,11 +247,16 @@ def main() -> None:
     rle = row_rle(indexed)
     packed_mask = pack_mask(sky_bits)
 
+    namespace = args.namespace.strip()
+    if not namespace or not all(c.isalnum() or c == "_" for c in namespace):
+        raise SystemExit("--namespace must contain only letters, numbers, and underscore")
+
     header = f"""#pragma once
 
 #include <stdint.h>
+#include "artwork_theme_asset.h"
 
-namespace moonlit_cabin_art {{
+namespace {namespace} {{
 
 static constexpr uint16_t WIDTH = {WIDTH};
 static constexpr uint16_t HEIGHT = {HEIGHT};
@@ -277,7 +284,7 @@ inline bool skyAllows(uint16_t x, uint16_t y) {{
     return (SKY_MASK[index >> 3] & (uint8_t)(1U << (index & 7))) != 0;
 }}
 
-}} // namespace moonlit_cabin_art
+}} // namespace {namespace}
 """
 
     layout = {
@@ -319,17 +326,10 @@ inline bool skyAllows(uint16_t x, uint16_t y) {{
     emitted_spans = span_rows or ["    {0, 0, 0, 0},"]
 
     metadata = f"""
-struct WindowSpan {{
-    uint16_t x;
-    uint16_t y;
-    uint8_t len;
-    uint8_t component;
-}};
-
 static constexpr uint16_t MOON_X = {moon_x};
 static constexpr uint16_t MOON_Y = {moon_y};
 
-static const WindowSpan WINDOW_SPANS[] = {{
+static const artwork_theme::WindowSpan WINDOW_SPANS[] = {{
 {chr(10).join(emitted_spans)}
 }};
 static constexpr uint16_t WINDOW_SPAN_COUNT = {len(window_spans)};
@@ -364,7 +364,21 @@ static constexpr uint8_t WINDOW_COMPONENT_COUNT = {window_component_count};
     print(f"RLE bytes: {len(rle)}")
     print(f"Sky mask bytes: {len(packed_mask)}")
     print(f"Window components: {window_component_count}")
+    binary_bytes = len(rle) + len(packed_mask) + len(window_spans) * 6
+    if args.stats_json:
+        args.stats_json.parent.mkdir(parents=True, exist_ok=True)
+        args.stats_json.write_text(json.dumps({
+            "width": WIDTH,
+            "height": HEIGHT,
+            "rle_bytes": len(rle),
+            "sky_mask_bytes": len(packed_mask),
+            "window_span_count": len(window_spans),
+            "window_component_count": window_component_count,
+            "estimated_flash_bytes": binary_bytes,
+        }, indent=2) + "\n")
+
     print(f"Window spans: {len(window_spans)}")
+    print(f"Estimated asset flash: {binary_bytes} bytes")
     print("Palette usage:")
     for name, count in sorted(counts.items(), key=lambda kv: -kv[1]):
         if count:
