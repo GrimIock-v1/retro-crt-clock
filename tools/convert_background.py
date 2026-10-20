@@ -359,6 +359,7 @@ static constexpr uint8_t WINDOW_COMPONENT_COUNT = {window_component_count};
     print(f"Resolution: {WIDTH}x{HEIGHT}")
     print(f"RLE bytes: {len(rle)}")
     print(f"Sky mask bytes: {len(packed_mask)}")
+    print(f"Sky pixels: {sum(1 for value in sky_bits if value)}")
     print(f"Window components: {window_component_count}")
     binary_bytes = len(rle) + len(packed_mask) + len(window_spans) * 6
     if args.stats_json:
@@ -368,6 +369,7 @@ static constexpr uint8_t WINDOW_COMPONENT_COUNT = {window_component_count};
             "height": HEIGHT,
             "rle_bytes": len(rle),
             "sky_mask_bytes": len(packed_mask),
+            "sky_pixel_count": sum(1 for value in sky_bits if value),
             "window_span_count": len(window_spans),
             "window_component_count": window_component_count,
             "estimated_flash_bytes": binary_bytes,
