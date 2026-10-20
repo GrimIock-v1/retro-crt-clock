@@ -67,6 +67,8 @@ The generator intentionally rejects artwork that gets too expensive:
 - optional artwork themes: maximum 8
 - one generated theme: maximum ~96 KB estimated flash data
 - optional artwork total: maximum ~384 KB estimated flash data
+- backdrop RLE: warning above 32 KB, hard stop at 64 KB to protect render time
+- animated light mask: maximum 512 horizontal draw spans
 - theme IDs 0..15 are reserved for firmware themes; optional artwork uses 16..63
 
 Those are conservative build-time limits, not promises that the application slot
